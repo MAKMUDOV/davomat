@@ -1,0 +1,19 @@
+{
+  "name": "Davomat daftari",
+  "short_name": "Davomat",
+  "description": "O'quvchilar davomati, vazifa va dars faolligi — o'qituvchi va ota-ona uchun.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#2747a8",
+  "lang": "uz",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
