@@ -40,6 +40,14 @@ const configured = !!(firebaseConfig && firebaseConfig.apiKey && !/BU_YERGA/.tes
 let fbApp = null, auth = null, db = null;
 if (configured) { fbApp = initializeApp(firebaseConfig); auth = getAuth(fbApp); db = getFirestore(fbApp); }
 document.title = SITE_NAME || "Davomat daftari";
+document.head.insertAdjacentHTML("beforeend", `<style>
+.mrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:2px}
+.mlab{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);min-width:54px}
+.mini{font-size:12px;font-weight:500;padding:1px 7px;border-radius:6px;background:var(--paper);color:var(--ink);border:1px solid var(--rule);white-space:nowrap}
+.mini.s-k,.mini.s-x,.mini.s-s,.mini.s-y{border-color:transparent;font-weight:600}
+.mini.none{color:var(--muted);border-style:dashed}
+.mini.pp1{color:var(--muted)}
+</style>`);
 
 const S = {
   role: configured ? "loading" : "setup", loginMode: ls.get("dv_mode") || "parent",
@@ -281,6 +289,13 @@ const emptyGroups = () => `<section class="sheet empty"><h2>Daftar hali bo'sh</h
   <p>Avval guruh oching va o'quvchilar ismini kiriting. Keyin har dars boshida bitta bosish bilan yo'qlama qilasiz.</p>
   <button class="btn primary" data-go="guruh">Guruh qo'shish</button></section>`;
 
+function todayTags(m, h, p) {
+  const out = [];
+  if (m) out.push(`<span class="mini s-${m}">${MARKS[m].sym} ${MARKS[m].label}</span>`);
+  if (h) out.push(`<span class="mini ${{ t: "s-k", q: "s-x", n: "s-y" }[h]}">Vazifa ${HW[h].sym} ${HW[h].label}</span>`);
+  const pv = Number(p); if (pv >= 1 && pv <= 3) out.push(`<span class="mini pp${pv}">Faollik: ${PAR[pv]}</span>`);
+  return out.length ? out.join("") : `<span class="mini none">hali belgilanmagan</span>`;
+}
 function vBugun() {
   if (!S.ready) return loadingCard();
   if (!S.groups.length) return emptyGroups();
@@ -317,7 +332,9 @@ function vBugun() {
     ${list.length ? `<ol class="roll">${list.map((s, i) => {
       const t = tallyRecs(recsFor(s.id, docs)), lv = level(t.pts), m = marks[s.id], off = m === "s" || m === "y";
       return `<li><span class="num">${i + 1}</span>
-        <div class="who"><button class="nmb" data-open="${esc(s.id)}" title="Darslardagi ishtirokini ko'rish">${esc(s.name)}</button><span class="lvl lv${lv}">${t.pts} ball · ${LVL[lv]}</span></div>
+        <div class="who"><button class="nmb" data-open="${esc(s.id)}" title="Darslardagi ishtirokini ko'rish">${esc(s.name)}</button>
+          <div class="mrow"><span class="mlab">Bugun:</span>${todayTags(m, hw[s.id], par[s.id])}</div>
+          <div class="mrow"><span class="mlab">Shu oy:</span><span class="mini">Davomat ${t.k + t.x}/${t.n}</span><span class="mini">Vazifa ${t.hwt}/${t.hwt + t.hwq + t.hwn}</span><span class="mini">Faollik: ${parWord(t)}</span><span class="lvl lv${lv}">${t.pts} ball · ${LVL[lv]}</span></div></div>
         <div class="seg" role="group" aria-label="${esc(s.name)} davomati">${Object.keys(MARKS).map(k => `<button class="${k}" data-sid="${esc(s.id)}" data-m="${k}" aria-pressed="${m === k}" title="${MARKS[k].label}">${MARKS[k].sym}</button>`).join("")}</div>
         <div class="extra">
           <span class="xl">Vazifa</span>
