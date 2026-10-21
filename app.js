@@ -326,7 +326,7 @@ function archiveBatch(b, st) {
 }
 function credText(st, c) {
   const url = location.origin + location.pathname;
-  return `Assalomu alaykum! ${st.name}ning davomat kabinetiga kirish:\nSayt: ${url}\n"Ota-ona" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}\nKirgandan keyin "Sozlamalar"da parolni o'zgartirishingiz mumkin.`;
+  return `Assalomu alaykum! ${st.name}ning davomat kabinetiga kirish:\nSayt: ${url}\n"Ota-ona" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
 
 /* admin: o'qituvchilar */
@@ -369,7 +369,7 @@ async function resetTeacher(t) {
 }
 function tcredText(c) {
   const url = location.origin + location.pathname;
-  return `Assalomu alaykum, ${c.name}! Davomat daftariga o'qituvchi sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}\nKirgandan keyin "Sozlamalar"da parolni o'zgartiring.`;
+  return `Assalomu alaykum, ${c.name}! Davomat daftariga o'qituvchi sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
 
 /* xabarlar */
@@ -615,7 +615,7 @@ function vTeacher() {
   const u = unreadCount();
   const tabs = [["bugun", "Yo'qlama"], ["jurnal", "Oylik jurnal"], ["xabar", "Xabarlar"], ["guruh", "O'quvchilar"]];
   if (S.isAdmin) tabs.push(["oqit", "O'qituvchilar"]);
-  tabs.push(["qoida", "Qoidalar"], ["sozlama", "Sozlamalar"]);
+  tabs.push(["qoida", "Qoidalar"]); if (S.isAdmin) tabs.push(["sozlama", "Sozlamalar"]);
   if (!tabs.some(([k]) => k === S.tab)) S.tab = "bugun";
   if (S.groups.length && !S.groups.some(g => g.id === S.gid)) S.gid = S.groups[0].id;
   const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, qoida: vQoida, sozlama: pwSection }[S.tab] || vBugun;
@@ -717,7 +717,7 @@ document.addEventListener("visibilitychange", markParentRead);
 function vParent() {
   if (!S.me) return loadingCard();
   const unread = S.thread && S.thread.unreadParent;
-  const tabs = [["kabinet", "Kabinet"], ["xabar", "O'qituvchiga yozish"], ["sozlama", "Sozlamalar"]];
+  const tabs = [["kabinet", "Kabinet"], ["xabar", "O'qituvchiga yozish"]]; if (!tabs.some(([k]) => k === S.ptab)) S.ptab = "kabinet";
   let body = "";
   if (S.ptab === "xabar") {
     body = `<section class="sheet"><h2>O'qituvchi bilan yozishma</h2>
