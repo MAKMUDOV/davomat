@@ -15,7 +15,8 @@ import {
 const MARKS = { k: { sym: "+", label: "Keldi" }, x: { sym: "k", label: "Kechikdi" }, s: { sym: "s", label: "Sababli" }, y: { sym: "y", label: "Sababsiz" } };
 const HW = { t: { sym: "✓", label: "Topshirdi" }, q: { sym: "½", label: "Qisman" }, n: { sym: "✗", label: "Topshirmadi" } };
 const PAR = { 1: "Sust", 2: "O'rta", 3: "Faol" };
-const DEF = { late: 1, absent: 2, hw: 1, warn: 3, talk: 6, out: 10, lateMin: 15, autoNotify: true, adminSubject: "Arab tili" };
+const PAY_TEXT = "Hurmatli ota-onalar 😊\n\nFarzandingizning kurs to‘lovlarini har oyning 12-sanasiga qadar amalga oshirishingizni eslatib o‘tamiz. 🗓\nTo‘lovlarning o‘z vaqtida bajarilishi farzandingizning ham, o‘qituvchining ham diqqatini to‘liq dars jarayoniga qaratishga yordam beradi va dars sifatining pasayishini oldini oladi. 📚✨\n\nSizning qo‘llab-quvvatlashingiz farzandlarimizning bilim olishdagi motivatsiyasini oshiradi va ularning muvaffaqiyatiga katta hissa qo‘shadi! 🌟💪";
+const DEF = { late: 1, absent: 2, hw: 1, warn: 3, talk: 6, out: 10, lateMin: 15, autoNotify: true, adminSubject: "Arab tili", payOn: true, payDays: "5, 10", payDue: 12, payText: PAY_TEXT };
 const LANGS = ["Arab tili", "Ingliz tili", "Rus tili", "Turk tili", "Nemis tili", "Fransuz tili", "Koreys tili", "Xitoy tili", "Yapon tili", "Ona tili", "Matematika"];
 const langList = () => `<datalist id="langs">${LANGS.map(l => `<option value="${l}">`).join("")}</datalist>`;
 const cleanSubj = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 40);
@@ -79,6 +80,8 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .subjrow input{width:170px;padding:6px 9px!important;font-size:14px!important}
 .tcard .bar{flex-wrap:wrap}
 @media (max-width:560px){.tcard{grid-template-columns:minmax(0,1fr)}}
+.paynote{white-space:pre-line;line-height:1.5}
+.paynote b.t{display:block;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
 .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 12px;border-radius:0 8px 8px 0;font-size:13px}
 </style>`);
 
@@ -200,8 +203,8 @@ function attDoc(d) {
 function startTeacher() {
   S.role = "teacher"; S.ready = false; S.att = {}; S.loadedMonths = new Set(recentMonths()); render();
   const seen = {}; let n = 0;
-  S.rulesLoaded = false; S.teachersLoaded = false; subjSynced = false;
-  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); syncSubjects(); } } render(); };
+  S.rulesLoaded = false; S.teachersLoaded = false; S.threadsLoaded = false; subjSynced = false; payTried = "";
+  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); syncSubjects(); autoPay(); } } render(); };
   subs.push(onSnapshot(query(collection(db, "groups"), ...ownQ()), q => {
     S.groups = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.created || 0) - (b.created || 0)); first("g");
   }, onErr));
@@ -214,8 +217,8 @@ function startTeacher() {
     Object.keys(pend).forEach(k => { if (S.att[k]) m[k] = S.att[k]; }); // saqlanmagan o'zgarishlar ustun
     S.att = m; if (++gotA >= 3) first("a"); else render();
   }, onErr)));
-  subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; S.rulesLoaded = true; syncSubjects(); render(); }, onErr));
-  subs.push(onSnapshot(query(collection(db, "threads"), ...ownQ()), q => { const m = {}; q.docs.forEach(d => m[d.id] = d.data({ serverTimestamps: "estimate" })); S.threads = m; render(); }, onErr));
+  subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; S.rulesLoaded = true; syncSubjects(); autoPay(); render(); }, onErr));
+  subs.push(onSnapshot(query(collection(db, "threads"), ...ownQ()), q => { const m = {}; q.docs.forEach(d => m[d.id] = d.data({ serverTimestamps: "estimate" })); S.threads = m; S.threadsLoaded = true; autoPay(); render(); }, onErr));
   if (S.isAdmin) subs.push(onSnapshot(collection(db, "teachers"), q => { const m = {}; q.docs.forEach(d => m[d.id] = { id: d.id, ...d.data() }); S.teachers = m; S.teachersLoaded = true; syncSubjects(); render(); }, onErr));
 }
 // Eski oylar faqat kerak bo'lganda bir marta yuklanadi
@@ -461,6 +464,69 @@ function tcredText(c) {
   const url = location.origin + location.pathname;
   return `Assalomu alaykum, ${c.name}! Davomat daftariga ${c.subject ? c.subject + " o'qituvchisi" : "o'qituvchi"} sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
+
+/* to'lov eslatmasi: har oyning belgilangan kunlarida ota-onalarga avtomatik xabar */
+const payDayList = r => String((r || S.rules).payDays || "").split(/[^0-9]+/).map(Number).filter(n => n >= 1 && n <= 28).sort((a, b) => a - b);
+// bugun uchun eslatma kaliti, masalan "2026-10-05" (eslatma vaqti bo'lmasa — null)
+function payKey(d = new Date(), r = S.rules) {
+  if (!r.payOn || !String(r.payText || "").trim()) return null;
+  const D = d.getDate(); if (D > (Number(r.payDue) || 31)) return null;
+  const due = payDayList(r).filter(x => x <= D).pop();
+  return due ? iso(d).slice(0, 8) + pad(due) : null;
+}
+let payBusy = false, payTried = "";
+async function sendPayReminders(key, all) {
+  const text = String(S.rules.payText || "").trim().slice(0, 2000); if (!text || payBusy) return 0;
+  const list = S.students.filter(st => st.active !== false && st.parentUid && (S.isAdmin || st.owner === S.uid)
+    && (all || String((S.threads[st.id] || {}).payRem || "") < key));
+  if (!list.length) return 0;
+  payBusy = true; let n = 0;
+  try {
+    for (let i = 0; i < list.length; i += 4) { // kichik bo'laklarda — qoidalar tekshiruvi chegarasidan oshmaslik uchun
+      const part = list.slice(i, i + 4), b = writeBatch(db);
+      part.forEach(st => {
+        b.set(doc(collection(db, "threads", st.id, "messages")), { from: "teacher", text, at: serverTimestamp() });
+        b.set(doc(db, "threads", st.id), { lastAt: serverTimestamp(), lastText: text.slice(0, 120), lastFrom: "teacher", unreadParent: true, payRem: key, owner: st.owner || S.uid }, { merge: true });
+      });
+      await b.commit(); n += part.length;
+    }
+  } catch (e) { console.error("pay", e); }
+  finally { payBusy = false; }
+  return n;
+}
+function autoPay() {
+  if (S.role !== "teacher" || !S.ready || !S.rulesLoaded || !S.threadsLoaded) return;
+  const key = payKey(); if (!key || payTried === key) return;
+  payTried = key;
+  sendPayReminders(key, false).then(n => { if (n) toast("To'lov eslatmasi " + n + " ta ota-onaga yuborildi"); });
+}
+setInterval(autoPay, 20 * 60 * 1000); // sahifa ochiq qolsa ham kun almashganda ishlaydi
+function paySection() {
+  const r = S.rules, d = S.payDraft || {};
+  const on = "pay-on" in d ? d["pay-on"] : !!r.payOn;
+  const days = "pay-days" in d ? d["pay-days"] : (r.payDays || "");
+  const due = "pay-due" in d ? d["pay-due"] : (r.payDue || "");
+  const text = "pay-text" in d ? d["pay-text"] : (r.payText || "");
+  const withParent = S.students.filter(st => st.active !== false && st.parentUid).length;
+  const sent = S.students.filter(st => st.active !== false && st.parentUid && String((S.threads[st.id] || {}).payRem || "").startsWith(thisMonth())).length;
+  const dl = payDayList();
+  return `<section class="sheet"><h2>To'lov eslatmasi</h2>
+    <p class="hint">Har oyning belgilangan kunlarida barcha ota-onalarga «Xabarlar» orqali avtomatik yuboriladi. Shu kunlardan to'lov muddatigacha ota-ona kabinetining tepasida ham ko'rinib turadi. Har bir o'qituvchining o'quvchilariga ham boradi.</p>
+    <form id="payf" style="display:grid;gap:12px;max-width:560px">
+      <label class="check" for="pay-on"><input type="checkbox" id="pay-on" ${on ? "checked" : ""}> Avtomatik eslatma yoqilgan</label>
+      <div class="bar" style="gap:12px">
+        <label class="hint" for="pay-days" style="display:grid;gap:4px">Yuboriladigan kunlar<input type="text" id="pay-days" value="${esc(days)}" placeholder="5, 10" style="width:140px"></label>
+        <label class="hint" for="pay-due" style="display:grid;gap:4px">To'lov muddati (sana)<input type="text" inputmode="numeric" id="pay-due" value="${esc(due)}" placeholder="12" style="width:110px"></label>
+      </div>
+      <label class="hint" for="pay-text" style="display:grid;gap:4px">Xabar matni<textarea id="pay-text" rows="9" maxlength="2000" style="width:100%">${esc(text)}</textarea></label>
+      <div class="bar"><button class="btn primary" type="submit">Saqlash</button>${S.payDraft ? `<span class="hint">Saqlanmagan o'zgarish bor</span>` : ""}</div>
+    </form>
+    <p class="hint" style="margin-top:12px">${r.payOn && dl.length ? `Har oyning <b>${dl.join(" va ")}</b>-sanasida yuboriladi.` : "Avtomatik eslatma o'chiq."} Shu oy yuborilgan: <b>${sent}</b> / ${withParent} ota-ona.</p>
+    ${S.confirmDel === "paynow" ? `<div class="note" style="display:grid;gap:8px;margin-top:8px"><span>Saqlangan matn hozir <b>${withParent}</b> ta ota-onaga yuborilsinmi?</span><span class="bar"><button class="btn small primary" data-paynowok>Ha, yuborilsin</button><button class="btn small" data-cancel>Bekor</button></span></div>`
+      : `<div class="bar" style="margin-top:8px"><button class="btn" data-paynow ${withParent ? "" : "disabled"}>Hozir hammaga yuborish</button></div>`}
+  </section>`;
+}
+const settingsTab = () => paySection() + pwSection();
 
 /* xabarlar */
 async function sendMsg(sid, text, from) {
@@ -717,7 +783,7 @@ function vTeacher() {
   tabs.push(["qoida", "Qoidalar"]); if (S.isAdmin) tabs.push(["sozlama", "Sozlamalar"]);
   if (!tabs.some(([k]) => k === S.tab)) S.tab = "bugun";
   if (S.groups.length && !S.groups.some(g => g.id === S.gid)) S.gid = S.groups[0].id;
-  const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, qoida: vQoida, sozlama: pwSection }[S.tab] || vBugun;
+  const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, qoida: vQoida, sozlama: settingsTab }[S.tab] || vBugun;
   const mySubj = subjOf(S.uid);
   const who = (S.isAdmin ? "Bosh o'qituvchi (admin)" : "O'qituvchi · " + esc(S.meT ? S.meT.name : "")) + (mySubj ? " · " + esc(mySubj) : "");
   return `<header class="top"><h1><small>${who}</small>${esc(SITE_NAME)}</h1><button class="btn small" data-logout>Chiqish</button></header>
@@ -828,7 +894,8 @@ function vParent() {
     body = pwSection().replace("<div><button class=\"btn danger\" data-logout>Chiqish</button></div>", `<p class="hint">Kirish kodi: <b style="font-family:var(--f-mono)">${esc(S.me.code || "")}</b>. Parolni unutsangiz, o'qituvchidan yangisini so'rang.</p><div><button class="btn danger" data-logout>Chiqish</button></div>`);
   } else {
     const recs = Object.values(S.lessons).filter(r => String(r.date || "").startsWith(S.pmonth));
-    body = `<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
+    const pk = payKey();
+    body = `${pk ? `<section class="note paynote" role="status"><b class="t">To'lov eslatmasi</b>${esc(S.rules.payText)}</section>` : ""}<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
       <section class="sheet"><details><summary style="cursor:pointer;font-weight:600">Davomat qoidalari</summary><div style="display:grid;gap:12px;margin-top:12px">${rulesList(S.rules)}</div></details></section>`;
   }
   return `<header class="top"><h1><small>${esc([S.me.subject, S.groupName].filter(Boolean).join(" · ") || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1><button class="btn small" data-logout>Chiqish</button></header>
@@ -920,6 +987,12 @@ document.addEventListener("click", e => {
   if (b.hasAttribute("data-credok")) { S.cred = null; render(); return; }
   if (b.hasAttribute("data-tcredok")) { S.tcred = null; render(); return; }
   if (b.dataset.treset && S.isAdmin) { const t = S.teachers[b.dataset.treset]; if (t) resetTeacher(t); return; }
+  if (b.hasAttribute("data-paynow") && S.isAdmin) { if (S.payDraft) { toast("Avval o'zgarishni saqlang"); return; } S.confirmDel = "paynow"; render(); return; }
+  if (b.hasAttribute("data-paynowok") && S.isAdmin) {
+    S.confirmDel = null; render();
+    sendPayReminders(iso(new Date()), true).then(n => toast(n ? n + " ta ota-onaga yuborildi" : "Yuborilmadi. Qayta urinib ko'ring."));
+    return;
+  }
   if (b.dataset.tdel && S.isAdmin) { S.confirmDel = "t:" + b.dataset.tdel; render(); return; }
   if (b.dataset.tdelok && S.isAdmin) { const t = S.teachers[b.dataset.tdelok]; S.confirmDel = null; if (t) deleteTeacher(t); return; }
   if (b.dataset.tblock && S.isAdmin) {
@@ -944,6 +1017,8 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("input", e => {
+  const pt = e.target;
+  if (pt.id && pt.id.startsWith("pay-") && S.isAdmin) { S.payDraft = { ...(S.payDraft || {}), [pt.id]: pt.type === "checkbox" ? pt.checked : pt.value }; return; }
   if (e.target.id === "task" && S.role === "teacher") { const v = e.target.value.slice(0, 140); editDoc(d => { d.task = v; }, "all", true); }
 });
 document.addEventListener("change", e => {
@@ -964,6 +1039,18 @@ document.addEventListener("submit", async e => {
   e.preventDefault(); const f = e.target;
   if (f.id === "loginf") { doLogin(f); return; }
   if (f.id === "pwf") { changePw(f); return; }
+  if (f.id === "payf" && S.isAdmin) {
+    const days = [...new Set(f.querySelector("#pay-days").value.split(/[^0-9]+/).map(Number).filter(n => n >= 1 && n <= 28))].sort((a, b) => a - b);
+    const due = Math.max(1, Math.min(31, parseInt(f.querySelector("#pay-due").value, 10) || 12));
+    const text = f.querySelector("#pay-text").value.trim().slice(0, 2000);
+    const on = f.querySelector("#pay-on").checked;
+    if (on && !days.length) { toast("Kamida bitta kun yozing, masalan: 5, 10"); return; }
+    if (on && !text) { toast("Xabar matnini yozing"); return; }
+    const next = { ...S.rules, payOn: on, payDays: days.join(", "), payDue: due, payText: text };
+    S.rules = next; S.payDraft = null; payTried = ""; render();
+    setDoc(doc(db, "settings", "rules"), next).then(() => { toast("To'lov eslatmasi saqlandi"); autoPay(); }).catch(err => { console.error(err); toast("Saqlanmadi."); });
+    return;
+  }
   if (f.id === "psend") {
     const ta = f.querySelector("#pmsg"), txt = ta.value; if (!txt.trim() || !S.me) return;
     ta.value = ""; if (!(await sendMsg(S.me.id, txt, "parent"))) ta.value = txt;
