@@ -436,6 +436,27 @@ async function resetTeacher(t) {
   } catch (e) { console.error(e); toast("Parol yangilanmadi" + (e.code ? " (" + e.code + ")" : "")); }
   finally { S.credBusy = null; render(); }
 }
+// O'qituvchini o'chirish: guruhlari, o'quvchilari va davomati yo'qolmaydi — adminga o'tadi
+async function deleteTeacher(t) {
+  S.credBusy = "del:" + t.id; render();
+  try {
+    const ops = [];
+    for (const c of ["groups", "students", "attendance", "threads", "logins"]) {
+      const q = await getDocs(query(collection(db, c), where("owner", "==", t.id)));
+      q.docs.forEach(d => ops.push(["u", c, d.id, c === "students" ? { owner: ADMIN_UID, subject: S.rules.adminSubject || "" } : { owner: ADMIN_UID }]));
+    }
+    if (t.code) ops.push(["d", "logins", t.code]);
+    ops.push(["d", "teachers", t.id]);
+    for (let i = 0; i < ops.length; i += 400) {
+      const b = writeBatch(db);
+      ops.slice(i, i + 400).forEach(([k, c, id, data]) => { const r = doc(db, c, id); if (k === "u") b.update(r, data); else b.delete(r); });
+      await b.commit();
+    }
+    if (S.tcred && S.tcred.tid === t.id) S.tcred = null;
+    toast(t.name + " o'chirildi");
+  } catch (e) { console.error(e); toast("O'chirilmadi" + (e.code ? " (" + e.code + ")" : "") + ". Qayta urinib ko'ring."); }
+  finally { S.credBusy = null; render(); }
+}
 function tcredText(c) {
   const url = location.origin + location.pathname;
   return `Assalomu alaykum, ${c.name}! Davomat daftariga ${c.subject ? c.subject + " o'qituvchisi" : "o'qituvchi"} sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
@@ -630,7 +651,12 @@ function vTeachers() {
           <input type="text" list="langs" id="ts-${esc(t.id)}" data-tsubj="${esc(t.id)}" value="${esc(t.subject || "")}" maxlength="40" placeholder="Fanini yozing" aria-label="${esc(t.name)} fani" style="width:140px;padding:6px 9px;font-size:14px">
           <button class="btn small" data-treset="${esc(t.id)}" ${S.credBusy ? "disabled" : ""}>${S.credBusy === t.id ? "Yaratilmoqda…" : "Yangi parol"}</button>
           <button class="btn small ${t.active ? "danger" : "primary"}" data-tblock="${esc(t.id)}">${t.active ? "Bloklash" : "Faollashtirish"}</button>
+          <button class="btn small danger" data-tdel="${esc(t.id)}" ${S.credBusy ? "disabled" : ""}>${S.credBusy === "del:" + t.id ? "O'chirilmoqda…" : "O'chirish"}</button>
         </div>
+        ${S.confirmDel === "t:" + t.id ? `<div class="note" style="grid-column:1/-1;display:grid;gap:8px">
+          <span><b>${esc(t.name)}</b> butunlay o'chirilsinmi? U boshqa kira olmaydi.
+          Uning ${cnt(t.id, S.groups)} ta guruhi va ${S.students.filter(s => s.owner === t.id && s.active !== false).length} ta o'quvchisi (davomati, xabarlari, ota-ona parollari bilan) <b>sizga o'tadi</b> — hech narsa yo'qolmaydi.</span>
+          <span class="bar"><button class="btn small danger" data-tdelok="${esc(t.id)}">Ha, o'chirilsin</button><button class="btn small" data-cancel>Bekor</button></span></div>` : ""}
         ${S.tcred && S.tcred.tid === t.id ? `<div class="cred"><span class="xl">O'qituvchiga yuboring — parol faqat hozir ko'rinadi</span>
           <pre id="credtxt">${esc(tcredText(S.tcred))}</pre>
           <div class="bar"><button class="btn small primary" data-copy>Nusxa olish</button><button class="btn small" data-tcredok>Yubordim, yopish</button></div></div>` : ""}
@@ -894,6 +920,8 @@ document.addEventListener("click", e => {
   if (b.hasAttribute("data-credok")) { S.cred = null; render(); return; }
   if (b.hasAttribute("data-tcredok")) { S.tcred = null; render(); return; }
   if (b.dataset.treset && S.isAdmin) { const t = S.teachers[b.dataset.treset]; if (t) resetTeacher(t); return; }
+  if (b.dataset.tdel && S.isAdmin) { S.confirmDel = "t:" + b.dataset.tdel; render(); return; }
+  if (b.dataset.tdelok && S.isAdmin) { const t = S.teachers[b.dataset.tdelok]; S.confirmDel = null; if (t) deleteTeacher(t); return; }
   if (b.dataset.tblock && S.isAdmin) {
     const t = S.teachers[b.dataset.tblock]; if (!t) return;
     updateDoc(doc(db, "teachers", t.id), { active: !t.active }).then(() => toast(t.active ? t.name + " bloklandi" : t.name + " faollashtirildi")).catch(onErr);
