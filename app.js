@@ -15,7 +15,10 @@ import {
 const MARKS = { k: { sym: "+", label: "Keldi" }, x: { sym: "k", label: "Kechikdi" }, s: { sym: "s", label: "Sababli" }, y: { sym: "y", label: "Sababsiz" } };
 const HW = { t: { sym: "✓", label: "Topshirdi" }, q: { sym: "½", label: "Qisman" }, n: { sym: "✗", label: "Topshirmadi" } };
 const PAR = { 1: "Sust", 2: "O'rta", 3: "Faol" };
-const DEF = { late: 1, absent: 2, hw: 1, warn: 3, talk: 6, out: 10, lateMin: 15, autoNotify: true };
+const DEF = { late: 1, absent: 2, hw: 1, warn: 3, talk: 6, out: 10, lateMin: 15, autoNotify: true, adminSubject: "Arab tili" };
+const LANGS = ["Arab tili", "Ingliz tili", "Rus tili", "Turk tili", "Nemis tili", "Fransuz tili", "Koreys tili", "Xitoy tili", "Yapon tili", "Ona tili", "Matematika"];
+const langList = () => `<datalist id="langs">${LANGS.map(l => `<option value="${l}">`).join("")}</datalist>`;
+const cleanSubj = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 40);
 const LVL = ["Toza", "Ogohlantirish", "Ota-ona bilan suhbat", "Chetlatish masalasi"];
 const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
 const WD = ["Yakshanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
@@ -70,6 +73,12 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .eye:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .remember{display:flex!important;align-items:center;gap:9px;font-size:14px!important;color:var(--ink)!important;cursor:pointer;user-select:none}
 .remember input{width:20px!important;height:20px;margin:0;accent-color:var(--accent);flex:none}
+.subj{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;vertical-align:1px}
+.subj.none{background:none;color:var(--muted);border:1px dashed var(--rule-strong);font-weight:500}
+.subjrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.subjrow input{width:170px;padding:6px 9px!important;font-size:14px!important}
+.tcard .bar{flex-wrap:wrap}
+@media (max-width:560px){.tcard{grid-template-columns:minmax(0,1fr)}}
 .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 12px;border-radius:0 8px 8px 0;font-size:13px}
 </style>`);
 
@@ -162,7 +171,7 @@ function vLogin() {
   const t = S.loginMode === "teacher";
   const rem = remembered(), saved = rem ? (ls.get("dv_id_" + S.loginMode) || "") : "";
   return `<section class="sheet login">
-    <div><h1><small>Arab tili guruhlari</small>${esc(SITE_NAME)}</h1></div>
+    <div><h1><small>Til o'rganish guruhlari</small>${esc(SITE_NAME)}</h1></div>
     <div class="seg" role="group" aria-label="Kim kiryapti">
       <button class="${t ? "" : "k"}" style="flex:1;font-family:var(--f-body);font-weight:600" data-mode="parent" aria-pressed="${!t}">Ota-ona</button>
       <button class="${t ? "k" : ""}" style="flex:1;font-family:var(--f-body);font-weight:600" data-mode="teacher" aria-pressed="${t}">O'qituvchi</button>
@@ -191,7 +200,8 @@ function attDoc(d) {
 function startTeacher() {
   S.role = "teacher"; S.ready = false; S.att = {}; S.loadedMonths = new Set(recentMonths()); render();
   const seen = {}; let n = 0;
-  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); } } render(); };
+  S.rulesLoaded = false; S.teachersLoaded = false; subjSynced = false;
+  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); syncSubjects(); } } render(); };
   subs.push(onSnapshot(query(collection(db, "groups"), ...ownQ()), q => {
     S.groups = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.created || 0) - (b.created || 0)); first("g");
   }, onErr));
@@ -204,9 +214,9 @@ function startTeacher() {
     Object.keys(pend).forEach(k => { if (S.att[k]) m[k] = S.att[k]; }); // saqlanmagan o'zgarishlar ustun
     S.att = m; if (++gotA >= 3) first("a"); else render();
   }, onErr)));
-  subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; render(); }, onErr));
+  subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; S.rulesLoaded = true; syncSubjects(); render(); }, onErr));
   subs.push(onSnapshot(query(collection(db, "threads"), ...ownQ()), q => { const m = {}; q.docs.forEach(d => m[d.id] = d.data({ serverTimestamps: "estimate" })); S.threads = m; render(); }, onErr));
-  if (S.isAdmin) subs.push(onSnapshot(collection(db, "teachers"), q => { const m = {}; q.docs.forEach(d => m[d.id] = { id: d.id, ...d.data() }); S.teachers = m; render(); }, onErr));
+  if (S.isAdmin) subs.push(onSnapshot(collection(db, "teachers"), q => { const m = {}; q.docs.forEach(d => m[d.id] = { id: d.id, ...d.data() }); S.teachers = m; S.teachersLoaded = true; syncSubjects(); render(); }, onErr));
 }
 // Eski oylar faqat kerak bo'lganda bir marta yuklanadi
 async function ensureMonth(m) {
@@ -244,6 +254,39 @@ const recsFor = (sid, docs) => docs.map(d => ({ date: d.date, task: d.task, m: d
 const unreadCount = () => Object.entries(S.threads).filter(([sid, t]) => t.unreadTeacher && S.students.some(s => s.id === sid && s.parentUid)).length;
 const groupOwner = gid => (S.groups.find(g => g.id === gid) || {}).owner || S.uid;
 const teacherName = uid => uid === ADMIN_UID ? "Siz" : ((S.teachers[uid] || {}).name || "O'qituvchi");
+// o'qituvchi qaysi fandan (til) dars berishi
+function subjOf(uid) {
+  if (uid === ADMIN_UID) return S.rules.adminSubject || "";
+  if (S.isAdmin) return (S.teachers[uid] || {}).subject || "";
+  if (uid === S.uid && S.meT) return S.meT.subject || "";
+  return "";
+}
+const subjTag = v => v ? `<span class="subj">${esc(v)}</span>` : `<span class="subj none">fan kiritilmagan</span>`;
+// o'quvchi hujjatiga fan nomini yozib qo'yish (ota-ona kabinetida ko'rinadi)
+async function pushSubject(owner, subject) {
+  const list = S.students.filter(st => st.owner === owner && st.active !== false && (st.subject || "") !== subject);
+  for (let i = 0; i < list.length; i += 400) {
+    const b = writeBatch(db); list.slice(i, i + 400).forEach(st => b.update(doc(db, "students", st.id), { subject })); await b.commit();
+  }
+}
+let subjSynced = false;
+function syncSubjects() {
+  if (subjSynced || !S.ready || !S.rulesLoaded || (S.isAdmin && !S.teachersLoaded)) return;
+  subjSynced = true;
+  const owners = [...new Set(S.students.map(st => st.owner).filter(Boolean))];
+  owners.forEach(o => { const v = subjOf(o); if (v) pushSubject(o, v).catch(e => console.error("subj", e)); });
+}
+async function saveTeacherSubject(tid, v) {
+  v = cleanSubj(v); const t = S.teachers[tid]; if (!t || (t.subject || "") === v) return;
+  try { await updateDoc(doc(db, "teachers", tid), { subject: v }); await pushSubject(tid, v); toast(t.name + " — " + (v || "fan o'chirildi")); }
+  catch (e) { console.error(e); toast("Saqlanmadi."); }
+}
+async function saveAdminSubject(v) {
+  v = cleanSubj(v); if ((S.rules.adminSubject || "") === v) return;
+  const next = { ...S.rules, adminSubject: v }; S.rules = next; render();
+  try { await setDoc(doc(db, "settings", "rules"), next); await pushSubject(ADMIN_UID, v); toast("Faningiz: " + (v || "—")); }
+  catch (e) { console.error(e); toast("Saqlanmadi."); }
+}
 
 /* yozish: yo'qlama + har o'quvchining dars yozuvi */
 const pend = {}; let flushT = null, flushing = false;
@@ -338,7 +381,7 @@ async function makeLogin(st) {
     const owner = st.owner || groupOwner(st.groupId);
     const b = writeBatch(db);
     b.set(doc(db, "logins", code), { email: acc.email, sid: st.id, role: "parent", owner });
-    b.update(doc(db, "students", st.id), { code, parentUid: acc.uid, owner, groupName: (S.groups.find(g => g.id === st.groupId) || {}).name || "" });
+    b.update(doc(db, "students", st.id), { code, parentUid: acc.uid, owner, groupName: (S.groups.find(g => g.id === st.groupId) || {}).name || "", subject: subjOf(owner) });
     b.set(doc(db, "threads", st.id), { parentUid: acc.uid, owner }, { merge: true });
     await b.commit();
     S.cred = { sid: st.id, code, pw: acc.pw };
@@ -356,16 +399,16 @@ function credText(st, c) {
 }
 
 /* admin: o'qituvchilar */
-async function createTeacher(name) {
+async function createTeacher(name, subject) {
   S.credBusy = "newT"; render();
   try {
     const code = await uniqueCode();
     const acc = await newAccount("t", code);
     const b = writeBatch(db);
-    b.set(doc(db, "teachers", acc.uid), { name, code, active: true, created: Date.now() });
+    b.set(doc(db, "teachers", acc.uid), { name, subject, code, active: true, created: Date.now() });
     b.set(doc(db, "logins", code), { email: acc.email, role: "teacher", owner: ADMIN_UID });
     await b.commit();
-    S.tcred = { tid: acc.uid, name, code, pw: acc.pw };
+    S.tcred = { tid: acc.uid, name, subject, code, pw: acc.pw };
     toast("O'qituvchi qo'shildi");
   } catch (e) { console.error(e); toast("O'qituvchi qo'shilmadi" + (e.code ? " (" + e.code + ")" : "")); }
   finally { S.credBusy = null; render(); }
@@ -380,7 +423,7 @@ async function resetTeacher(t) {
       const q = await getDocs(query(collection(db, c), where("owner", "==", t.id)));
       q.docs.forEach(d => ops.push(["u", c, d.id, { owner: acc.uid }]));
     }
-    ops.push(["s", "teachers", acc.uid, { name: t.name, code: t.code, active: true, created: t.created || Date.now() }]);
+    ops.push(["s", "teachers", acc.uid, { name: t.name, subject: t.subject || "", code: t.code, active: true, created: t.created || Date.now() }]);
     ops.push(["s", "logins", t.code, { email: acc.email, role: "teacher", owner: ADMIN_UID }]);
     ops.push(["d", "teachers", t.id]);
     for (let i = 0; i < ops.length; i += 400) {
@@ -388,14 +431,14 @@ async function resetTeacher(t) {
       ops.slice(i, i + 400).forEach(([k, c, id, data]) => { const r = doc(db, c, id); if (k === "u") b.update(r, data); else if (k === "s") b.set(r, data); else b.delete(r); });
       await b.commit();
     }
-    S.tcred = { tid: acc.uid, name: t.name, code: t.code, pw: acc.pw };
+    S.tcred = { tid: acc.uid, name: t.name, subject: t.subject || "", code: t.code, pw: acc.pw };
     toast("Yangi parol tayyor");
   } catch (e) { console.error(e); toast("Parol yangilanmadi" + (e.code ? " (" + e.code + ")" : "")); }
   finally { S.credBusy = null; render(); }
 }
 function tcredText(c) {
   const url = location.origin + location.pathname;
-  return `Assalomu alaykum, ${c.name}! Davomat daftariga o'qituvchi sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
+  return `Assalomu alaykum, ${c.name}! Davomat daftariga ${c.subject ? c.subject + " o'qituvchisi" : "o'qituvchi"} sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
 
 /* xabarlar */
@@ -575,12 +618,16 @@ function vTeachers() {
   const cnt = (uid, arr) => arr.filter(x => x.owner === uid && x.active !== false).length;
   return `<section class="sheet"><h2>Yangi o'qituvchi qo'shish</h2>
       <p class="hint">O'qituvchiga kod va parol beriladi. U o'z kabinetida faqat o'z guruhlari va o'quvchilarini ko'radi, o'quvchilar ota-onalariga o'zi parol beradi. Siz hammasini ko'rasiz.</p>
-      <form class="bar" id="tform"><input type="text" id="tname" placeholder="Ism-familiyasi, masalan: Malika Rahimova" style="flex:1" maxlength="60"><button class="btn primary" ${S.credBusy ? "disabled" : ""}>${S.credBusy === "newT" ? "Yaratilmoqda…" : "Qo'shish"}</button></form>
+      <form class="bar" id="tform"><input type="text" id="tname" placeholder="Ism-familiyasi, masalan: Malika Rahimova" style="flex:2 1 220px" maxlength="60" aria-label="Ism-familiyasi"><input type="text" id="tsubj" list="langs" placeholder="Fani: Ingliz tili" style="flex:1 1 150px" maxlength="40" aria-label="Qaysi fandan (til)"><button class="btn primary" ${S.credBusy ? "disabled" : ""}>${S.credBusy === "newT" ? "Yaratilmoqda…" : "Qo'shish"}</button></form>
+    </section>
+    <section class="sheet"><h2>Sizning faningiz</h2>
+      <div class="subjrow"><input type="text" list="langs" id="adminsubj" data-adminsubj value="${esc(S.rules.adminSubject || "")}" maxlength="40" aria-label="Sizning faningiz" placeholder="Masalan: Arab tili"><span class="hint">Sizning o'quvchilaringiz ota-onalari shuni ko'radi.</span></div>
     </section>
     <section class="sheet"><h2>O'qituvchilar · ${list.length}</h2>
       ${list.length ? list.map(t => `<div class="tcard ${t.active ? "" : "off"}">
-        <div><strong>${esc(t.name)}</strong><div class="meta">Kod: ${esc(t.code)} · ${cnt(t.id, S.groups)} guruh · ${S.students.filter(s => s.owner === t.id && s.active !== false).length} o'quvchi${t.active ? "" : " · bloklangan"}</div></div>
+        <div><strong>${esc(t.name)}</strong> ${subjTag(t.subject)}<div class="meta">Kod: ${esc(t.code)} · ${cnt(t.id, S.groups)} guruh · ${S.students.filter(s => s.owner === t.id && s.active !== false).length} o'quvchi${t.active ? "" : " · bloklangan"}</div></div>
         <div class="bar">
+          <input type="text" list="langs" id="ts-${esc(t.id)}" data-tsubj="${esc(t.id)}" value="${esc(t.subject || "")}" maxlength="40" placeholder="Fanini yozing" aria-label="${esc(t.name)} fani" style="width:140px;padding:6px 9px;font-size:14px">
           <button class="btn small" data-treset="${esc(t.id)}" ${S.credBusy ? "disabled" : ""}>${S.credBusy === t.id ? "Yaratilmoqda…" : "Yangi parol"}</button>
           <button class="btn small ${t.active ? "danger" : "primary"}" data-tblock="${esc(t.id)}">${t.active ? "Bloklash" : "Faollashtirish"}</button>
         </div>
@@ -588,7 +635,7 @@ function vTeachers() {
           <pre id="credtxt">${esc(tcredText(S.tcred))}</pre>
           <div class="bar"><button class="btn small primary" data-copy>Nusxa olish</button><button class="btn small" data-tcredok>Yubordim, yopish</button></div></div>` : ""}
       </div>`).join("") : `<p class="hint">Hali o'qituvchi qo'shilmagan.</p>`}
-    </section>`;
+    </section>${langList()}`;
 }
 
 function rulesList(r) {
@@ -645,7 +692,8 @@ function vTeacher() {
   if (!tabs.some(([k]) => k === S.tab)) S.tab = "bugun";
   if (S.groups.length && !S.groups.some(g => g.id === S.gid)) S.gid = S.groups[0].id;
   const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, qoida: vQoida, sozlama: pwSection }[S.tab] || vBugun;
-  const who = S.isAdmin ? "Bosh o'qituvchi (admin)" : "O'qituvchi · " + esc(S.meT ? S.meT.name : "");
+  const mySubj = subjOf(S.uid);
+  const who = (S.isAdmin ? "Bosh o'qituvchi (admin)" : "O'qituvchi · " + esc(S.meT ? S.meT.name : "")) + (mySubj ? " · " + esc(mySubj) : "");
   return `<header class="top"><h1><small>${who}</small>${esc(SITE_NAME)}</h1><button class="btn small" data-logout>Chiqish</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}${k === "xabar" && u ? `<span class="badge">${u}</span>` : ""}</button>`).join("")}</nav>
     <main style="display:grid;gap:14px">${body()}</main>`;
@@ -757,7 +805,7 @@ function vParent() {
     body = `<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
       <section class="sheet"><details><summary style="cursor:pointer;font-weight:600">Davomat qoidalari</summary><div style="display:grid;gap:12px;margin-top:12px">${rulesList(S.rules)}</div></details></section>`;
   }
-  return `<header class="top"><h1><small>${esc(S.groupName || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1><button class="btn small" data-logout>Chiqish</button></header>
+  return `<header class="top"><h1><small>${esc([S.me.subject, S.groupName].filter(Boolean).join(" · ") || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1><button class="btn small" data-logout>Chiqish</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-ptab="${k}" aria-selected="${S.ptab === k}">${l}${k === "xabar" && unread ? `<span class="badge">1</span>` : ""}</button>`).join("")}</nav>
     <main style="display:grid;gap:14px">${body}</main>`;
 }
@@ -874,6 +922,8 @@ document.addEventListener("change", e => {
   const t = e.target; if (S.role !== "teacher") return;
   if (t.id === "date" && t.value) { S.date = t.value; ensureMonth(S.date.slice(0, 7)); render(); }
   if (t.id === "month" && t.value) { S.month = t.value; ensureMonth(S.month); render(); }
+  if (t.dataset.tsubj && S.isAdmin) { saveTeacherSubject(t.dataset.tsubj, t.value); return; }
+  if (t.hasAttribute("data-adminsubj") && S.isAdmin) { saveAdminSubject(t.value); return; }
   if ((t.dataset.rule || t.id === "r-auto") && S.isAdmin) {
     const next = { ...S.rules };
     if (t.id === "r-auto") next.autoNotify = t.checked;
@@ -898,8 +948,11 @@ document.addEventListener("submit", async e => {
     return;
   }
   if (f.id === "tform" && S.isAdmin) {
-    const n = $("#tname").value.trim(); if (!n || S.credBusy) return; $("#tname").value = "";
-    createTeacher(n.slice(0, 60)); return;
+    const n = $("#tname").value.trim(), sj = cleanSubj($("#tsubj").value);
+    if (!n || S.credBusy) return;
+    if (!sj) { $("#tsubj").focus(); toast("Qaysi fandan dars berishini yozing"); return; }
+    $("#tname").value = ""; $("#tsubj").value = "";
+    createTeacher(n.slice(0, 60), sj); return;
   }
   if (f.id === "gform") {
     const n = $("#gname").value.trim(); if (!n) return;
@@ -912,7 +965,7 @@ document.addEventListener("submit", async e => {
     const names = ta.value.split("\n").map(s => s.trim()).filter(Boolean); if (!names.length) return; ta.value = "";
     const bt = writeBatch(db);
     const g = S.groups.find(x => x.id === f.dataset.g) || {};
-    names.slice(0, 200).forEach(n => bt.set(doc(collection(db, "students")), { name: n.slice(0, 80), groupId: f.dataset.g, groupName: g.name || "", owner: g.owner || S.uid, active: true, code: null, parentUid: null, created: Date.now() }));
+    names.slice(0, 200).forEach(n => bt.set(doc(collection(db, "students")), { name: n.slice(0, 80), groupId: f.dataset.g, groupName: g.name || "", owner: g.owner || S.uid, subject: subjOf(g.owner || S.uid), active: true, code: null, parentUid: null, created: Date.now() }));
     bt.commit().then(() => toast(names.length + " ta o'quvchi qo'shildi")).catch(err => { console.error(err); ta.value = names.join("\n"); toast("Qo'shilmadi. Qayta urinib ko'ring."); });
   }
 });
