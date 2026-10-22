@@ -3,7 +3,8 @@ import { firebaseConfig, TEACHER_UID as ADMIN_UID, SITE_NAME } from "./firebase-
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
-  createUserWithEmailAndPassword, updatePassword, EmailAuthProvider, reauthenticateWithCredential
+  createUserWithEmailAndPassword, updatePassword, EmailAuthProvider, reauthenticateWithCredential,
+  setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, onSnapshot, getDoc, getDocs, setDoc, updateDoc,
@@ -62,6 +63,13 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .tcard{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--rule)}
 .tcard .meta{font-size:13px;color:var(--muted)}
 .off{opacity:.55}
+.pwbox{position:relative;display:block}
+.pwbox input{width:100%;padding-right:46px!important}
+.eye{position:absolute;right:3px;top:50%;transform:translateY(-50%);width:40px;height:38px;border:0;background:none;color:var(--muted);display:grid;place-items:center;cursor:pointer;border-radius:8px;padding:0}
+.eye:hover{color:var(--ink)}
+.eye:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.remember{display:flex!important;align-items:center;gap:9px;font-size:14px!important;color:var(--ink)!important;cursor:pointer;user-select:none}
+.remember input{width:20px!important;height:20px;margin:0;accent-color:var(--accent);flex:none}
 .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 12px;border-radius:0 8px 8px 0;font-size:13px}
 </style>`);
 
@@ -97,6 +105,17 @@ const parWord = t => t.parN ? (t.par >= 2.5 ? "Faol" : t.par >= 1.5 ? "O'rta" : 
 const host = () => (firebaseConfig.authDomain || "davomat.firebaseapp.com").replace(/^https?:\/\//, "");
 
 /* ================= kirish ================= */
+const EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>', EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18.5 18.5 0 0 1 5.1-5.9M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a18.6 18.6 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/></svg>';
+// parol maydoni: ko'rsatish / yashirish tugmasi bilan
+const pwInput = (id, attrs = "") => `<span class="pwbox"><input type="password" id="${id}" ${attrs}><button type="button" class="eye" data-eye="${id}" aria-label="Parolni ko'rsatish" title="Parolni ko'rsatish" aria-pressed="false">${EYE}</button></span>`;
+function toggleEye(b) {
+  const inp = document.getElementById(b.dataset.eye); if (!inp) return;
+  const show = inp.type === "password"; inp.type = show ? "text" : "password";
+  b.innerHTML = show ? EYE_OFF : EYE; b.setAttribute("aria-pressed", String(show));
+  const l = show ? "Parolni yashirish" : "Parolni ko'rsatish"; b.setAttribute("aria-label", l); b.title = l;
+  inp.focus({ preventScroll: true }); try { const n = inp.value.length; inp.setSelectionRange(n, n); } catch (_) { }
+}
+const remembered = () => ls.get("dv_remember") !== "0";
 if (configured) {
   onAuthStateChanged(auth, async user => {
     clearSubs(); S.detail = null; S.chat = null; S.cred = null; S.tcred = null; S.isAdmin = false; S.meT = null;
@@ -117,6 +136,11 @@ async function doLogin(form) {
   try {
     const pw = form.querySelector("#l-pw").value;
     let id = form.querySelector("#l-id").value.trim();
+    const rem = form.querySelector("#l-rem").checked;
+    ls.set("dv_remember", rem ? "1" : "0");
+    ls.set("dv_id_" + S.loginMode, rem ? id : "");
+    // eslab qolinsa — brauzer yopilsa ham kirgan holda qoladi; aks holda oyna yopilganda chiqib ketadi
+    await setPersistence(auth, rem ? browserLocalPersistence : browserSessionPersistence);
     if (S.loginMode === "teacher" && id.includes("@")) {
       await signInWithEmailAndPassword(auth, id, pw);
     } else {
@@ -136,6 +160,7 @@ async function doLogin(form) {
 }
 function vLogin() {
   const t = S.loginMode === "teacher";
+  const rem = remembered(), saved = rem ? (ls.get("dv_id_" + S.loginMode) || "") : "";
   return `<section class="sheet login">
     <div><h1><small>Arab tili guruhlari</small>${esc(SITE_NAME)}</h1></div>
     <div class="seg" role="group" aria-label="Kim kiryapti">
@@ -143,8 +168,9 @@ function vLogin() {
       <button class="${t ? "k" : ""}" style="flex:1;font-family:var(--f-body);font-weight:600" data-mode="teacher" aria-pressed="${t}">O'qituvchi</button>
     </div>
     <form id="loginf" autocomplete="on">
-      <label for="l-id">${t ? "O'qituvchi kodi (yoki email)" : "O'quvchi kodi"}<input type="${t ? "text" : "tel"}" id="l-id" ${t ? "" : `inputmode="numeric"`} autocomplete="username" placeholder="Masalan: 482193" required></label>
-      <label for="l-pw">Parol<input type="password" id="l-pw" autocomplete="current-password" required></label>
+      <label for="l-id">${t ? "O'qituvchi kodi (yoki email)" : "O'quvchi kodi"}<input type="${t ? "text" : "tel"}" id="l-id" ${t ? "" : `inputmode="numeric"`} autocomplete="username" placeholder="Masalan: 482193" value="${esc(saved)}" required></label>
+      <label for="l-pw">Parol${pwInput("l-pw", `autocomplete="current-password" required`)}</label>
+      <label class="remember" for="l-rem"><input type="checkbox" id="l-rem" ${rem ? "checked" : ""}> Meni eslab qol</label>
       <p class="err" role="alert"></p>
       <button class="btn primary" type="submit">Kirish</button>
       <p class="hint">${t ? "Kod va parolni bosh o'qituvchidan olasiz." : "Kod va parolni farzandingiz o'qituvchisidan olasiz. Har bir o'quvchining kodi alohida."}</p>
@@ -600,9 +626,9 @@ function vQoida() {
 function pwSection() {
   return `<section class="sheet"><h2>Parolni o'zgartirish</h2>
       <form id="pwf" style="display:grid;gap:10px;max-width:380px">
-        <label class="hint" for="pw-old">Hozirgi parol<input type="password" id="pw-old" autocomplete="current-password" required style="width:100%"></label>
-        <label class="hint" for="pw-new">Yangi parol (kamida 6 belgi)<input type="password" id="pw-new" autocomplete="new-password" minlength="6" required style="width:100%"></label>
-        <label class="hint" for="pw-new2">Yangi parolni takrorlang<input type="password" id="pw-new2" autocomplete="new-password" minlength="6" required style="width:100%"></label>
+        <label class="hint" for="pw-old">Hozirgi parol${pwInput("pw-old", `autocomplete="current-password" required`)}</label>
+        <label class="hint" for="pw-new">Yangi parol (kamida 6 belgi)${pwInput("pw-new", `autocomplete="new-password" minlength="6" required`)}</label>
+        <label class="hint" for="pw-new2">Yangi parolni takrorlang${pwInput("pw-new2", `autocomplete="new-password" minlength="6" required`)}</label>
         <p class="err" role="alert"></p>
         <div><button class="btn primary" type="submit">Saqlash</button></div>
       </form>
@@ -795,6 +821,7 @@ document.addEventListener("click", e => {
   if (e.target === dlgEl) { closeDlg(); return; }
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.mode) { S.loginMode = b.dataset.mode; ls.set("dv_mode", S.loginMode); appEl.dataset.mode = ""; render(); return; }
+  if (b.dataset.eye) { toggleEye(b); return; }
   if (b.hasAttribute("data-logout")) { if (Object.keys(pend).length) flush(); signOut(auth); return; }
   if (b.dataset.ptab) { S.ptab = b.dataset.ptab; render(); markParentRead(); return; }
   if (b.dataset.dm) {
