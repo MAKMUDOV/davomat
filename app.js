@@ -7,7 +7,7 @@ import {
   setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, onSnapshot, getDoc, getDocs, setDoc, updateDoc,
+  getFirestore, collection, doc, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   writeBatch, serverTimestamp, query, orderBy, where, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -81,6 +81,29 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .tcard .bar{flex-wrap:wrap}
 @media (max-width:560px){.tcard{grid-template-columns:minmax(0,1fr)}}
 .paynote{white-space:pre-line;line-height:1.5}
+.msg .mtime{display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:11px;opacity:.75}
+.mdots{border:0;background:none;color:inherit;font:700 15px/1 var(--f-body);padding:0 2px 2px;cursor:pointer;opacity:.9;border-radius:4px}
+.mtools{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;justify-content:flex-end;white-space:normal}
+.mtools button{font:600 12px var(--f-body);border:0;border-radius:7px;padding:5px 10px;cursor:pointer;background:rgba(255,255,255,.2);color:inherit}
+.mtools button.dg{background:#fff;color:#b42318}
+.mtools span{font-size:12.5px;align-self:center;margin-right:auto}
+.msg.editing{max-width:100%;width:100%;background:var(--paper);color:var(--ink);border:1px solid var(--accent)}
+.msg.editing textarea{width:100%;min-height:70px;font-size:15px}
+.msg.editing .mtools button{background:var(--accent);color:#fff}
+.msg.editing .mtools button.sec{background:var(--paper);color:var(--ink);border:1px solid var(--rule-strong)}
+.dchips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:2px 0 8px}
+.dchips .xl{margin-right:4px}
+.dchips button{font:600 12px var(--f-body);min-width:34px;padding:5px 6px;border-radius:7px;border:1px solid var(--rule-strong);background:var(--paper);color:var(--muted);cursor:pointer}
+.dchips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.rep{display:grid;gap:10px}
+.repcard{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;display:grid;gap:6px}
+.repcard .top2{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;align-items:baseline}
+.bar2{height:8px;border-radius:99px;background:#f3d1cd;overflow:hidden}
+.bar2 i{display:block;height:100%;background:#2f8a4f}
+.pct-ok{color:#2f8a4f;font-weight:700}.pct-bad{color:#b42318;font-weight:700}
+.gl{font-size:13px;color:var(--muted)}
+.repalert{display:grid;gap:6px}
+.repalert pre{white-space:pre-wrap;font:500 13.5px/1.5 var(--f-body);margin:0}
 .paynote b.t{display:block;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
 .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 12px;border-radius:0 8px 8px 0;font-size:13px}
 </style>`);
@@ -204,7 +227,7 @@ function startTeacher() {
   S.role = "teacher"; S.ready = false; S.att = {}; S.loadedMonths = new Set(recentMonths()); render();
   const seen = {}; let n = 0;
   S.rulesLoaded = false; S.teachersLoaded = false; S.threadsLoaded = false; subjSynced = false; payTried = "";
-  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); syncSubjects(); autoPay(); } } render(); };
+  const first = k => { if (!seen[k]) { seen[k] = 1; if (++n === 3) { S.ready = true; if (S.isAdmin) migrate(); syncSubjects(); autoPay(); checkReport(); } } render(); };
   subs.push(onSnapshot(query(collection(db, "groups"), ...ownQ()), q => {
     S.groups = q.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.created || 0) - (b.created || 0)); first("g");
   }, onErr));
@@ -319,7 +342,7 @@ async function flush() {
         const st = S.students.find(x => x.id === sid); if (!st || !st.parentUid) return;
         const dt = new Date(a.date + "T12:00:00");
         const text = `Assalomu alaykum. ${dt.getDate()}-${MONTHS[dt.getMonth()]} kuni ${st.name} darsga sababsiz kelmadi. Iltimos, sababini shu yerga yozib qoldiring.`;
-        b.set(doc(collection(db, "threads", sid, "messages")), { from: "teacher", text, at: serverTimestamp() });
+        b.set(doc(collection(db, "threads", sid, "messages")), { from: "teacher", text, at: serverTimestamp(), by: S.uid });
         b.set(doc(db, "threads", sid), { owner: st.owner || a.owner, lastAt: serverTimestamp(), lastText: text.slice(0, 120), lastFrom: "teacher", unreadParent: true }, { merge: true });
       });
       await b.commit();
@@ -485,7 +508,7 @@ async function sendPayReminders(key, all) {
     for (let i = 0; i < list.length; i += 4) { // kichik bo'laklarda — qoidalar tekshiruvi chegarasidan oshmaslik uchun
       const part = list.slice(i, i + 4), b = writeBatch(db);
       part.forEach(st => {
-        b.set(doc(collection(db, "threads", st.id, "messages")), { from: "teacher", text, at: serverTimestamp() });
+        b.set(doc(collection(db, "threads", st.id, "messages")), { from: "teacher", text, at: serverTimestamp(), by: S.uid });
         b.set(doc(db, "threads", st.id), { lastAt: serverTimestamp(), lastText: text.slice(0, 120), lastFrom: "teacher", unreadParent: true, payRem: key, owner: st.owner || S.uid }, { merge: true });
       });
       await b.commit(); n += part.length;
@@ -528,11 +551,68 @@ function paySection() {
 }
 const settingsTab = () => paySection() + pwSection();
 
+/* ================= admin: kunlik hisobot ================= */
+const DOW = [[1, "Du"], [2, "Se"], [3, "Ch"], [4, "Pa"], [5, "Ju"], [6, "Sh"], [0, "Ya"]];
+// shu kuni darsi bor guruhlar: o'qituvchi bo'yicha belgilangan / belgilanmagan
+function reportFor(date) {
+  const dow = new Date(date + "T12:00:00").getDay();
+  const by = {};
+  const add = uid => by[uid] || (by[uid] = { uid, name: uid === ADMIN_UID ? "Siz" : teacherName(uid), subj: subjOf(uid), done: [], left: [] });
+  Object.values(S.teachers).filter(t => t.active).forEach(t => add(t.id));
+  S.groups.forEach(g => {
+    if (!activeStudents(g.id).length) return;
+    if ((g.days || []).length && !g.days.includes(dow)) return;
+    const a = S.att[g.id + "_" + date], marked = a && Object.keys(a.marks || {}).length > 0;
+    add(g.owner || ADMIN_UID)[marked ? "done" : "left"].push(g.name);
+  });
+  return Object.values(by).sort((a, b) => (a.uid === ADMIN_UID) - (b.uid === ADMIN_UID) || b.left.length - a.left.length || a.name.localeCompare(b.name, "uz"));
+}
+const pct = (n, all) => all ? Math.round(n * 100 / all) : 0;
+function reportText(date) {
+  const d = new Date(date + "T12:00:00"), rows = reportFor(date);
+  const lines = rows.map(r => { const all = r.done.length + r.left.length; const nm = r.name + (r.subj ? " (" + r.subj + ")" : "");
+    if (!all) return `• ${nm}: bugun darsi yo'q`;
+    return `• ${nm}: ${r.done.length} ta guruhni belgiladi (${pct(r.done.length, all)}%), ${r.left.length} ta guruh belgilanmadi (${pct(r.left.length, all)}%)` + (r.left.length ? `\n   Belgilanmagan: ${r.left.join(", ")}` : ""); });
+  const T = rows.reduce((s, r) => s + r.done.length + r.left.length, 0), L = rows.reduce((s, r) => s + r.left.length, 0);
+  return `Davomat hisoboti — ${d.getDate()}-${MONTHS[d.getMonth()]}, ${WD[d.getDay()].toLowerCase()}\n${lines.join("\n")}\n\nJami: ${T - L}/${T} guruh belgilandi (${pct(T - L, T)}%), ${L} ta belgilanmadi (${pct(L, T)}%).`;
+}
+function vReport() {
+  if (!S.ready) return loadingCard();
+  const date = S.repDate || iso(new Date()), rows = reportFor(date), d = new Date(date + "T12:00:00");
+  const T = rows.reduce((s, r) => s + r.done.length + r.left.length, 0), L = rows.reduce((s, r) => s + r.left.length, 0);
+  const perm = typeof Notification === "undefined" ? "none" : Notification.permission;
+  return `<section class="sheet"><div class="bar between"><h2>Kunlik hisobot</h2><input type="date" id="repdate" value="${date}" aria-label="Sana"></div>
+    <p class="hint">${WD[d.getDay()]}, ${d.getDate()}-${MONTHS[d.getMonth()]} · o'qituvchilar yo'qlamani qilgan-qilmagani. Har kuni soat <b>20:00</b> da shu hisobot sizga chiqadi.</p>
+    <p style="margin:6px 0 10px;font-size:15px">Jami: <b>${T - L}/${T}</b> guruh belgilandi <span class="pct-ok">(${pct(T - L, T)}%)</span> · <b>${L}</b> ta belgilanmadi <span class="pct-bad">(${pct(L, T)}%)</span></p>
+    <div class="rep">${rows.length ? rows.map(r => { const all = r.done.length + r.left.length; return `<div class="repcard">
+      <div class="top2"><strong>${esc(r.name)} ${r.subj ? subjTag(r.subj) : ""}</strong>${all ? `<span><span class="pct-ok">${r.done.length} ta belgiladi (${pct(r.done.length, all)}%)</span> · <span class="${r.left.length ? "pct-bad" : "gl"}">${r.left.length} ta belgilanmadi (${pct(r.left.length, all)}%)</span></span>` : `<span class="gl">bu kuni darsi yo'q</span>`}</div>
+      ${all ? `<div class="bar2"><i style="width:${pct(r.done.length, all)}%"></i></div>` : ""}
+      ${r.left.length ? `<div class="gl">Belgilanmagan: <b style="color:var(--ink)">${r.left.map(esc).join(", ")}</b></div>` : ""}
+      ${r.done.length ? `<div class="gl">Belgilangan: ${r.done.map(esc).join(", ")}</div>` : ""}</div>`; }).join("") : `<p class="hint">Hali guruh yo'q.</p>`}</div>
+    <div class="bar" style="margin-top:12px"><button class="btn primary" data-repcopy>Hisobot matnidan nusxa olish</button>${perm === "default" ? `<button class="btn" data-notif>20:00 da bildirishnoma yoqish</button>` : perm === "granted" ? `<span class="hint">Bildirishnoma yoqilgan ✓</span>` : ""}</div>
+    <p class="hint">Guruhning dars kunlarini «O'quvchilar» bo'limida belgilang — shunda darsi yo'q kuni u «belgilanmadi» deb hisoblanmaydi.</p>
+    <pre id="credtxt" hidden>${esc(reportText(date))}</pre></section>`;
+}
+function repAlertHtml() {
+  return `<section class="note repalert" role="status"><b>Bugungi hisobot (20:00)</b><pre>${esc(reportText(iso(new Date())))}</pre>
+    <span class="bar"><button class="btn small primary" data-go="hisob">Batafsil</button><button class="btn small" data-repclose>Yopish</button></span></section>`;
+}
+// har kuni 20:00 dan keyin adminga bir marta hisobot chiqadi (sayt ochiq bo'lsa yoki keyin ochilganda)
+function checkReport() {
+  if (!S.isAdmin || !S.ready || S.role !== "teacher") return;
+  const now = new Date(); if (now.getHours() < 20) return;
+  const day = iso(now), k = "dv_rep_" + day; if (ls.get(k)) { if (ls.get(k) === "open") S.repAlert = day; return; }
+  ls.set(k, "open"); S.repAlert = day; render();
+  toast("Bugungi davomat hisoboti tayyor");
+  try { if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("Davomat hisoboti", { body: reportText(day).split("\n").slice(1, 6).join("\n"), icon: "icon.svg", tag: "rep-" + day }); } catch (_) { }
+}
+setInterval(checkReport, 60 * 1000);
+
 /* xabarlar */
 async function sendMsg(sid, text, from) {
   text = text.trim().slice(0, 2000); if (!text) return false;
   const b = writeBatch(db);
-  b.set(doc(collection(db, "threads", sid, "messages")), { from, text, at: serverTimestamp() });
+  b.set(doc(collection(db, "threads", sid, "messages")), { from, text, at: serverTimestamp(), by: auth.currentUser.uid });
   const meta = { lastAt: serverTimestamp(), lastText: text.slice(0, 120), lastFrom: from };
   meta[from === "teacher" ? "unreadParent" : "unreadTeacher"] = true;
   b.set(doc(db, "threads", sid), meta, { merge: true });
@@ -540,7 +620,7 @@ async function sendMsg(sid, text, from) {
 }
 function openChat(sid) {
   if (chatUnsub) chatUnsub();
-  S.chat = { sid }; S.detail = null; S.msgs = [];
+  S.chat = { sid }; S.detail = null; S.msgs = []; S.msel = S.medit = S.mdel = null;
   chatUnsub = onSnapshot(query(collection(db, "threads", sid, "messages"), orderBy("at", "desc"), limit(200)), q => {
     S.msgs = q.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).reverse();
     const t = S.threads[sid]; if (t && t.unreadTeacher) updateDoc(doc(db, "threads", sid), { unreadTeacher: false }).catch(() => { });
@@ -680,6 +760,7 @@ function vGuruh() {
       <div class="bar between"><h2>${esc(g.name)} <span class="hint">· ${st.length} o'quvchi${S.isAdmin && g.owner && g.owner !== ADMIN_UID ? " · " + esc(teacherName(g.owner)) : ""}</span></h2>
         ${S.confirmDel === g.id ? `<span class="bar"><button class="btn danger" data-delg="${esc(g.id)}">Ha, o'chirilsin</button><button class="btn" data-cancel>Bekor</button></span>`
           : `<button class="btn danger small" data-askdel="${esc(g.id)}">Guruhni o'chirish</button>`}</div>
+      <div class="dchips" role="group" aria-label="Dars kunlari"><span class="xl">Dars kunlari:</span>${DOW.map(([n, l]) => `<button data-gday="${esc(g.id)}:${n}" aria-pressed="${(g.days || []).includes(n)}">${l}</button>`).join("")}${(g.days || []).length ? "" : `<span class="hint" style="margin-left:6px">belgilanmasa — har kuni hisoblanadi</span>`}</div>
       ${st.length ? `<div>${st.map(s => `<div class="srow">
           <div><button class="nmb" data-open="${esc(s.id)}">${esc(s.name)}</button><br><span class="code">${s.parentUid && s.code ? "Kod: " + esc(s.code) + " · ota-ona ulangan" : "Ota-ona hali ulanmagan"}</span></div>
           <div class="bar">
@@ -779,16 +860,16 @@ function pwSection() {
 function vTeacher() {
   const u = unreadCount();
   const tabs = [["bugun", "Yo'qlama"], ["jurnal", "Oylik jurnal"], ["xabar", "Xabarlar"], ["guruh", "O'quvchilar"]];
-  if (S.isAdmin) tabs.push(["oqit", "O'qituvchilar"]);
+  if (S.isAdmin) tabs.push(["oqit", "O'qituvchilar"], ["hisob", "Hisobot"]);
   tabs.push(["qoida", "Qoidalar"]); if (S.isAdmin) tabs.push(["sozlama", "Sozlamalar"]);
   if (!tabs.some(([k]) => k === S.tab)) S.tab = "bugun";
   if (S.groups.length && !S.groups.some(g => g.id === S.gid)) S.gid = S.groups[0].id;
-  const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, qoida: vQoida, sozlama: settingsTab }[S.tab] || vBugun;
+  const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, hisob: vReport, qoida: vQoida, sozlama: settingsTab }[S.tab] || vBugun;
   const mySubj = subjOf(S.uid);
   const who = (S.isAdmin ? "Bosh o'qituvchi (admin)" : "O'qituvchi · " + esc(S.meT ? S.meT.name : "")) + (mySubj ? " · " + esc(mySubj) : "");
   return `<header class="top"><h1><small>${who}</small>${esc(SITE_NAME)}</h1><button class="btn small" data-logout>Chiqish</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}${k === "xabar" && u ? `<span class="badge">${u}</span>` : ""}</button>`).join("")}</nav>
-    <main style="display:grid;gap:14px">${body()}</main>`;
+    <main style="display:grid;gap:14px">${S.isAdmin && S.repAlert === iso(new Date()) && S.tab !== "hisob" ? repAlertHtml() : ""}${body()}</main>`;
 }
 
 /* kartochka (o'qituvchi uchun dialog, ota-ona uchun sahifa) */
@@ -826,9 +907,48 @@ function vDetail() {
     <div class="ph"><div><span class="xl">${esc(g ? g.name : "")}</span><h2 id="dlg-t">${esc(st.name)}</h2></div><button class="btn x" data-close aria-label="Yopish">×</button></div>
     ${cardBody(st.name, g ? g.name : "", recs, S.detail.month, btn)}</div>`;
 }
+// xabar menikimi: yangi xabarlarda yozgan odam (by), eskilarida tomoni (from)
+const isMine = (m, role) => m.by ? (auth && auth.currentUser && m.by === auth.currentUser.uid) : m.from === role;
+function msgHtml(m, role) {
+  const own = isMine(m, role), side = m.from === role ? "me" : "";
+  const t = `<span class="mtime"><time>${fmtTime(m.at)}</time>${m.edited ? "<span>· tahrirlangan</span>" : ""}${own ? `<button class="mdots" data-msel="${esc(m.id)}" aria-label="Xabar amallari" title="Tahrirlash yoki o'chirish">⋯</button>` : ""}</span>`;
+  if (own && S.medit && S.medit.id === m.id) return `<div class="msg editing"><textarea id="medit" maxlength="2000" aria-label="Xabarni tahrirlash">${esc(S.medit.text)}</textarea>
+    <div class="mtools"><button class="sec" data-mcancel>Bekor</button><button data-msave="${esc(m.id)}">Saqlash</button></div></div>`;
+  let tools = "";
+  if (own && S.mdel === m.id) tools = `<div class="mtools"><span>O'chirilsinmi?</span><button data-mcancel>Yo'q</button><button class="dg" data-mdelok="${esc(m.id)}">Ha, o'chirish</button></div>`;
+  else if (own && S.msel === m.id) tools = `<div class="mtools"><button data-medit="${esc(m.id)}">Tahrirlash</button><button class="dg" data-mdel="${esc(m.id)}">O'chirish</button></div>`;
+  return `<div class="msg ${side}">${esc(m.text)}${t}${tools}</div>`;
+}
 function chatBody(msgs, mine) {
   if (!msgs.length) return `<div class="chat" id="chatbox"><p class="hint" style="margin:auto;text-align:center">Hali xabar yo'q. Birinchi bo'lib yozing.</p></div>`;
-  return `<div class="chat" id="chatbox">${msgs.map(m => `<div class="msg ${m.from === mine ? "me" : ""}">${esc(m.text)}<time>${fmtTime(m.at)}</time></div>`).join("")}</div>`;
+  return `<div class="chat" id="chatbox">${msgs.map(m => msgHtml(m, mine)).join("")}</div>`;
+}
+const chatCtx = () => S.role === "parent" ? { sid: S.me && S.me.id, msgs: S.pmsgs, role: "parent" } : { sid: S.chat && S.chat.sid, msgs: S.msgs, role: "teacher" };
+async function syncLast(sid, msgs) {
+  const last = msgs[msgs.length - 1];
+  try { await updateDoc(doc(db, "threads", sid), { lastText: last ? String(last.text).slice(0, 120) : "" }); } catch (_) { }
+}
+async function saveEdit(id) {
+  const c = chatCtx(), m = c.msgs.find(x => x.id === id); if (!m || !c.sid || !S.medit) return;
+  const text = S.medit.text.trim().slice(0, 2000);
+  if (!text) { toast("Xabar bo'sh bo'lmasin. O'chirish uchun «O'chirish»ni bosing."); return; }
+  S.medit = null; S.msel = null; render();
+  if (text === m.text) return;
+  try {
+    await updateDoc(doc(db, "threads", c.sid, "messages", id), { text, edited: serverTimestamp() });
+    if (c.msgs[c.msgs.length - 1] && c.msgs[c.msgs.length - 1].id === id) syncLast(c.sid, c.msgs.map(x => x.id === id ? { ...x, text } : x));
+    toast("Xabar tahrirlandi");
+  } catch (e) { console.error(e); toast("Tahrirlab bo'lmadi. Faqat o'zingiz yozgan xabarni o'zgartira olasiz."); }
+}
+async function delMsg(id) {
+  const c = chatCtx(); if (!c.sid) return;
+  S.mdel = null; S.msel = null; render();
+  try {
+    const wasLast = c.msgs.length && c.msgs[c.msgs.length - 1].id === id;
+    await deleteDoc(doc(db, "threads", c.sid, "messages", id));
+    if (wasLast) syncLast(c.sid, c.msgs.filter(x => x.id !== id));
+    toast("Xabar o'chirildi");
+  } catch (e) { console.error(e); toast("O'chirib bo'lmadi. Faqat o'zingiz yozgan xabarni o'chira olasiz."); }
 }
 function vChatDlg() {
   const st = S.students.find(x => x.id === S.chat.sid); if (!st) return "";
@@ -844,11 +964,13 @@ function renderDlg(keepInput) {
   const first = dlgEl.hidden;
   const ta = dlgEl.querySelector("#tmsg"), draft = ta ? ta.value : "", focused = ta && document.activeElement === ta;
   const panel = dlgEl.querySelector(".panel"), sc = panel ? panel.scrollTop : 0;
+  const cb = dlgEl.querySelector("#chatbox"), chatSc = cb ? cb.scrollTop : null;
   dlgEl.innerHTML = S.chat ? vChatDlg() : vDetail();
   dlgEl.hidden = false; document.body.style.overflow = "hidden";
   const p2 = dlgEl.querySelector(".panel"); if (p2 && !S.chat) p2.scrollTop = sc;
-  const box = dlgEl.querySelector("#chatbox"); if (box) box.scrollTop = box.scrollHeight;
-  const ta2 = dlgEl.querySelector("#tmsg"); if (ta2) { ta2.value = draft; if (focused || (first && S.chat)) ta2.focus(); }
+  const box = dlgEl.querySelector("#chatbox"); if (box) box.scrollTop = (S.msel || S.medit || S.mdel) && chatSc != null ? chatSc : box.scrollHeight;
+  const me2 = dlgEl.querySelector("#medit"); if (me2 && S.medit) { me2.focus({ preventScroll: true }); try { me2.setSelectionRange(me2.value.length, me2.value.length); } catch (_) { } }
+  const ta2 = dlgEl.querySelector("#tmsg"); if (ta2) { ta2.value = draft; if (!S.medit && (focused || (first && S.chat))) ta2.focus(); }
   if (first && !S.chat) dlgEl.querySelector("[data-close]")?.focus();
 }
 
@@ -937,13 +1059,13 @@ function draw() {
   const typing = ae && (ae.tagName === "TEXTAREA" || (ae.tagName === "INPUT" && /^(text|password|email|tel|number)$/.test(ae.type)));
   const keep = {}; appEl.querySelectorAll("textarea, input[type=text], input[type=password], input[type=email], input[type=tel]").forEach(el => { if (el.id && el.value) keep[el.id] = el.value; });
   const sel = typing ? [ae.selectionStart, ae.selectionEnd] : null;
-  const pchat = appEl.querySelector(".chat.page"), atBottom = !pchat || pchat.scrollHeight - pchat.scrollTop - pchat.clientHeight < 40;
+  const pchat = appEl.querySelector(".chat.page"), atBottom = !pchat || pchat.scrollHeight - pchat.scrollTop - pchat.clientHeight < 40, pTop = pchat ? pchat.scrollTop : 0;
   if (S.role === "login" && appEl.querySelector("#loginf") && appEl.dataset.mode === S.loginMode) return; // kirish formasi qayta chizilmaydi
   appEl.dataset.mode = S.role === "login" ? S.loginMode : "";
   appEl.innerHTML = html;
   Object.entries(keep).forEach(([id, v]) => { const el = document.getElementById(id); if (el && !el.value && id !== "task") el.value = v; else if (el && id === "task" && pend[S.gid + "_" + S.date]) el.value = v; });
   if (aid && !S.detail && !S.chat) { const el = document.getElementById(aid); if (el) { el.focus(); if (sel) { try { el.setSelectionRange(sel[0], sel[1]); } catch (_) { } } } }
-  const pc = appEl.querySelector(".chat.page"); if (pc && atBottom) pc.scrollTop = pc.scrollHeight;
+  const pc = appEl.querySelector(".chat.page"); if (pc) pc.scrollTop = atBottom && !S.msel && !S.medit && !S.mdel ? pc.scrollHeight : pTop;
   if (S.role === "teacher") renderDlg(true); else if (!dlgEl.hidden) { dlgEl.hidden = true; dlgEl.innerHTML = ""; document.body.style.overflow = ""; }
 }
 
@@ -971,6 +1093,12 @@ document.addEventListener("click", e => {
     return;
   }
   if (b.hasAttribute("data-copy")) { copyCred(); return; }
+  if (b.dataset.msel) { S.msel = S.msel === b.dataset.msel ? null : b.dataset.msel; S.mdel = null; S.medit = null; render(); return; }
+  if (b.dataset.medit) { const m = chatCtx().msgs.find(x => x.id === b.dataset.medit); if (m) { S.medit = { id: m.id, text: m.text }; S.msel = null; render(); } return; }
+  if (b.dataset.msave) { saveEdit(b.dataset.msave); return; }
+  if (b.dataset.mdel) { S.mdel = b.dataset.mdel; S.msel = null; render(); return; }
+  if (b.dataset.mdelok) { delMsg(b.dataset.mdelok); return; }
+  if (b.hasAttribute("data-mcancel")) { S.medit = null; S.mdel = null; S.msel = null; render(); return; }
   if (S.role !== "teacher") return;
   if (b.dataset.tab) { S.tab = b.dataset.tab; S.confirmDel = null; ls.set("dv_tab", S.tab); render(); return; }
   if (b.dataset.go) { S.tab = b.dataset.go; ls.set("dv_tab", S.tab); render(); return; }
@@ -993,6 +1121,17 @@ document.addEventListener("click", e => {
     sendPayReminders(iso(new Date()), true).then(n => toast(n ? n + " ta ota-onaga yuborildi" : "Yuborilmadi. Qayta urinib ko'ring."));
     return;
   }
+  if (b.dataset.gday) {
+    const [gid, n] = b.dataset.gday.split(":"), g = S.groups.find(x => x.id === gid); if (!g) return;
+    const cur = new Set(g.days || []), v = Number(n); cur.has(v) ? cur.delete(v) : cur.add(v);
+    const days = [...cur].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7));
+    S.groups = S.groups.map(x => x.id === gid ? { ...x, days } : x); render();
+    updateDoc(doc(db, "groups", gid), { days }).catch(err => { console.error(err); toast("Saqlanmadi."); });
+    return;
+  }
+  if (b.hasAttribute("data-repcopy") && S.isAdmin) { copyCred(); return; }
+  if (b.hasAttribute("data-repclose") && S.isAdmin) { S.repAlert = null; ls.set("dv_rep_" + iso(new Date()), "seen"); render(); return; }
+  if (b.hasAttribute("data-notif") && S.isAdmin) { try { Notification.requestPermission().then(() => render()); } catch (_) { } return; }
   if (b.dataset.tdel && S.isAdmin) { S.confirmDel = "t:" + b.dataset.tdel; render(); return; }
   if (b.dataset.tdelok && S.isAdmin) { const t = S.teachers[b.dataset.tdelok]; S.confirmDel = null; if (t) deleteTeacher(t); return; }
   if (b.dataset.tblock && S.isAdmin) {
@@ -1018,6 +1157,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => {
   const pt = e.target;
+  if (pt.id === "medit" && S.medit) { S.medit.text = pt.value; return; }
   if (pt.id && pt.id.startsWith("pay-") && S.isAdmin) { S.payDraft = { ...(S.payDraft || {}), [pt.id]: pt.type === "checkbox" ? pt.checked : pt.value }; return; }
   if (e.target.id === "task" && S.role === "teacher") { const v = e.target.value.slice(0, 140); editDoc(d => { d.task = v; }, "all", true); }
 });
@@ -1025,6 +1165,7 @@ document.addEventListener("change", e => {
   const t = e.target; if (S.role !== "teacher") return;
   if (t.id === "date" && t.value) { S.date = t.value; ensureMonth(S.date.slice(0, 7)); render(); }
   if (t.id === "month" && t.value) { S.month = t.value; ensureMonth(S.month); render(); }
+  if (t.id === "repdate" && t.value) { S.repDate = t.value; ensureMonth(t.value.slice(0, 7)); render(); }
   if (t.dataset.tsubj && S.isAdmin) { saveTeacherSubject(t.dataset.tsubj, t.value); return; }
   if (t.hasAttribute("data-adminsubj") && S.isAdmin) { saveAdminSubject(t.value); return; }
   if ((t.dataset.rule || t.id === "r-auto") && S.isAdmin) {
