@@ -8,7 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  writeBatch, serverTimestamp, query, orderBy, where, limit
+  writeBatch, serverTimestamp, query, orderBy, where, limit, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 /* ================= umumiy ================= */
@@ -81,6 +81,15 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .tcard .bar{flex-wrap:wrap}
 @media (max-width:560px){.tcard{grid-template-columns:minmax(0,1fr)}}
 .paynote{white-space:pre-line;line-height:1.5}
+.ntf{display:grid;gap:10px}
+.ntf .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between;border-top:1px solid var(--rule);padding-top:10px}
+.ntf .row:first-of-type{border-top:0;padding-top:0}
+.ntf .lbl{display:flex;align-items:center;gap:10px;font-weight:700}
+.ntf .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex:none}
+.ntf .ic.tg{background:#229ED9}.ntf .ic.ph{background:var(--brand)}
+.ntf .ok{color:var(--ok);font-weight:700;font-size:13px}
+.ntf .sub{display:block;font-weight:400;font-size:12.5px;color:var(--muted)}
+.btn.tgb{background:#229ED9;border-color:#229ED9;color:#fff}
 .msg .mtime{display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:11px;opacity:.75}
 .mdots{border:0;background:none;color:inherit;font:700 15px/1 var(--f-body);padding:0 2px 2px;cursor:pointer;opacity:.9;border-radius:4px}
 .mtools{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;justify-content:flex-end;white-space:normal}
@@ -248,6 +257,7 @@ function startTeacher() {
     S.att = m; if (++gotA >= 3) first("a"); else render();
   }, onErr)));
   subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; S.rulesLoaded = true; syncSubjects(); autoPay(); render(); }, onErr));
+  watchNotify(S.uid);
   subs.push(onSnapshot(query(collection(db, "threads"), ...ownQ()), q => { const m = {}; q.docs.forEach(d => m[d.id] = d.data({ serverTimestamps: "estimate" })); S.threads = m; S.threadsLoaded = true; autoPay(); render(); }, onErr));
   if (S.isAdmin) subs.push(onSnapshot(collection(db, "teachers"), q => { const m = {}; q.docs.forEach(d => m[d.id] = { id: d.id, ...d.data() }); S.teachers = m; S.teachersLoaded = true; syncSubjects(); render(); }, onErr));
 }
@@ -615,6 +625,74 @@ function checkReport() {
 }
 setInterval(checkReport, 60 * 1000);
 
+/* ================= bildirishnomalar: Telegram + telefon (push) ================= */
+const VAPID_KEY = "BCRo9O9SU0rFgeqq2KKqT-gMoKFFEkBCxPAWFb_4BR3LEgoLbpkDkE8A7huW0HMqJLcdJYuQBIMpSsNGpqaSPmw";
+function watchNotify(uid) {
+  S.ntfCfg = null; S.mySub = null;
+  subs.push(onSnapshot(doc(db, "settings", "notify"), d => { S.ntfCfg = d.exists() ? d.data() : null; render(); }, () => { }));
+  subs.push(onSnapshot(doc(db, "subs", uid), d => { S.mySub = d.exists() ? d.data() : {}; render(); }, () => { }));
+}
+const myRole = () => S.role === "parent" ? "parent" : S.isAdmin ? "admin" : "teacher";
+const pushSupported = () => typeof window !== "undefined" && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function notifyCard() {
+  const sub = S.mySub || {}, cfg = S.ntfCfg || {};
+  const tgOn = (sub.tg || []).length > 0, myTok = ls.get("dv_push_token"), pushOn = !!(myTok && (sub.push || []).includes(myTok) && pushSupported() && Notification.permission === "granted");
+  const what = S.role === "parent" ? "ustoz xabarlari va to'lov eslatmalari" : S.isAdmin ? "ota-onalar xabarlari va har kungi 20:00 hisobot" : "ota-onalardan kelgan xabarlar";
+  const tgIcon = `<span class="ic tg"><svg width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M21.9 4.3 18.6 19.9c-.2 1.1-.9 1.4-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.2L5.9 13.4l-4.9-1.5c-1.1-.3-1.1-1.1.2-1.6L20.4 2.9c.9-.3 1.7.2 1.5 1.4z"/></svg></span>`;
+  const phIcon = `<span class="ic ph"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>`;
+  let ph;
+  if (pushOn) ph = `<span class="ok">Yoqilgan ✓</span><button class="btn small ghost" data-pushoff>O'chirish</button>`;
+  else if (!pushSupported()) ph = isIOS() ? `<span class="hint" style="max-width:420px">iPhone'da: Safari'da <b>Ulashish ⬆︎ → «Bosh ekranga qo'shish»</b>, keyin saytni shu belgidan oching va shu yerga qayting.</span>` : `<span class="hint">Bu brauzer qo'llamaydi. Chrome orqali oching.</span>`;
+  else if (Notification.permission === "denied") ph = `<span class="hint" style="max-width:420px">Brauzer sozlamalarida bu sayt uchun bildirishnomalar taqiqlangan. Sayt manzili yonidagi 🔒 belgisidan ruxsat bering.</span>`;
+  else ph = `<button class="btn small primary" data-pushon ${!VAPID_KEY || VAPID_KEY.startsWith("__") ? "disabled" : ""}>Yoqish</button>`;
+  const tg = !cfg.bot ? `<span class="hint">Tez orada</span>` : tgOn ? `<span class="ok">Ulangan ✓</span><button class="btn small ghost" data-tgoff>Uzish</button>` : `<button class="btn small tgb" data-tglink>Telegram'ni ulash</button>`;
+  if (tgOn && pushOn && S.role !== "parent") return `<p class="hint" style="margin:0">🔔 Bildirishnomalar yoqilgan: Telegram va telefon.</p>`;
+  return `<section class="sheet ntf"><h2>🔔 Bildirishnomalar</h2>
+    <p class="hint" style="margin:0">Saytga kirmasangiz ham ${what} darhol telefoningizga keladi.</p>
+    <div class="row"><span class="lbl">${tgIcon}<span>Telegram<span class="sub">${cfg.bot ? "@" + esc(cfg.bot) : "bot orqali"}</span></span></span><span class="bar">${tg}</span></div>
+    <div class="row"><span class="lbl">${phIcon}<span>Telefon bildirishnomasi<span class="sub">shu qurilmada</span></span></span><span class="bar">${ph}</span></div></section>`;
+}
+async function linkTelegram(b) {
+  const cfg = S.ntfCfg || {}; if (!cfg.bot) return;
+  b.disabled = true; b.textContent = "Ochilmoqda…";
+  const w = window.open("", "_blank");
+  try {
+    const a = new Uint8Array(18); crypto.getRandomValues(a);
+    const token = [...a].map(x => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[x % 62]).join("");
+    await setDoc(doc(db, "tglink", token), { uid: auth.currentUser.uid, role: myRole(), sid: S.role === "parent" && S.me ? S.me.id : "", exp: Date.now() + 30 * 60 * 1000 });
+    const url = `https://t.me/${cfg.bot}?start=${token}`;
+    if (w) w.location.href = url; else location.href = url;
+    toast("Telegram'da «Start» (Boshlash) tugmasini bosing");
+  } catch (e) { console.error(e); if (w) w.close(); toast("Ulanmadi. Qayta urinib ko'ring."); }
+  setTimeout(() => render(), 3000);
+}
+async function enablePush(b) {
+  if (!pushSupported()) return;
+  b.disabled = true; b.textContent = "Kuting…";
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { toast("Ruxsat berilmadi"); render(); return; }
+    const reg = await navigator.serviceWorker.register("firebase-messaging-sw.js");
+    const m = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js");
+    if (!(await m.isSupported())) { toast("Bu brauzer qo'llamaydi"); render(); return; }
+    const token = await m.getToken(m.getMessaging(fbApp), { vapidKey: VAPID_KEY, serviceWorkerRegistration: reg });
+    if (!token) throw new Error("token yo'q");
+    const old = ls.get("dv_push_token");
+    const upd = { push: arrayUnion(token), role: myRole() };
+    await setDoc(doc(db, "subs", auth.currentUser.uid), upd, { merge: true });
+    if (old && old !== token) setDoc(doc(db, "subs", auth.currentUser.uid), { push: arrayRemove(old) }, { merge: true }).catch(() => { });
+    ls.set("dv_push_token", token);
+    toast("Bildirishnoma yoqildi ✓");
+  } catch (e) { console.error(e); toast("Yoqilmadi. Qayta urinib ko'ring."); }
+  render();
+}
+async function disablePush() {
+  const t = ls.get("dv_push_token"); if (!t) return;
+  try { await setDoc(doc(db, "subs", auth.currentUser.uid), { push: arrayRemove(t) }, { merge: true }); ls.set("dv_push_token", ""); toast("Bildirishnoma o'chirildi"); } catch (e) { onErr(e); }
+  render();
+}
+
 /* xabarlar */
 async function sendMsg(sid, text, from) {
   text = text.trim().slice(0, 2000); if (!text) return false;
@@ -743,13 +821,13 @@ function vJurnal() {
 function vXabar() {
   if (!S.ready) return loadingCard();
   const withLogin = S.students.filter(s => s.parentUid && s.active !== false);
-  if (!withLogin.length) return `<section class="sheet empty"><h2>Hali hech bir ota-ona ulanmagan</h2>
+  if (!withLogin.length) return notifyCard() + `<section class="sheet empty"><h2>Hali hech bir ota-ona ulanmagan</h2>
     <p>"O'quvchilar" bo'limida o'quvchi yonidagi "Kirish yaratish" tugmasini bosing va chiqqan kod hamda parolni ota-onaga yuboring.</p>
     <button class="btn primary" data-go="guruh">O'quvchilarga o'tish</button></section>`;
   const gname = id => (S.groups.find(g => g.id === id) || {}).name || "";
   const ms = t => t && t.lastAt && t.lastAt.toMillis ? t.lastAt.toMillis() : 0;
   const rows = withLogin.map(s => ({ s, t: S.threads[s.id] || {} })).sort((a, b) => (b.t.unreadTeacher ? 1 : 0) - (a.t.unreadTeacher ? 1 : 0) || ms(b.t) - ms(a.t) || a.s.name.localeCompare(b.s.name, "uz"));
-  return `<section class="sheet"><h2>Ota-onalar bilan yozishma</h2>
+  return notifyCard() + `<section class="sheet"><h2>Ota-onalar bilan yozishma</h2>
     <ul class="tlist">${rows.map(({ s, t }) => `<li><button data-chat="${esc(s.id)}">
       <span class="nmline">${esc(s.name)}${t.unreadTeacher ? `<span class="dot" title="Yangi xabar"></span>` : ""}</span>
       <span class="when">${esc(gname(s.groupId))}${t.lastAt ? " · " + fmtTime(t.lastAt) : ""}</span>
@@ -1001,6 +1079,7 @@ async function startParent(user) {
       S.pmsgs = q3.docs.map(x => ({ id: x.id, ...x.data({ serverTimestamps: "estimate" }) })).reverse(); render();
     }, onErr));
     subs.push(onSnapshot(doc(db, "settings", "rules"), d => { S.rules = { ...DEF, ...(d.exists() ? d.data() : {}) }; render(); }, onErr));
+    watchNotify(user.uid);
   } catch (e) { console.error(e); S.role = "revoked"; render(); }
 }
 function markParentRead() {
@@ -1024,7 +1103,7 @@ function vParent() {
   } else {
     const recs = Object.values(S.lessons).filter(r => String(r.date || "").startsWith(S.pmonth));
     const pk = payKey();
-    body = `${pk ? `<section class="note paynote" role="status"><b class="t">To'lov eslatmasi</b>${esc(S.rules.payText)}</section>` : ""}<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
+    body = `${pk ? `<section class="note paynote" role="status"><b class="t">To'lov eslatmasi</b>${esc(S.rules.payText)}</section>` : ""}${notifyCard()}<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
       <section class="sheet"><details><summary style="cursor:pointer;font-weight:600">Davomat qoidalari</summary><div style="display:grid;gap:12px;margin-top:12px">${rulesList(S.rules)}</div></details></section>`;
   }
   return `<header class="top"><div class="hbrand"><span class="bmark"><img src="mark-w.png" alt="Asia Academy" width="29" height="32"></span><h1><small><b>Asia Academy</b> · ${esc([S.me.subject, S.groupName].filter(Boolean).join(" · ") || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1></div><button class="btn small" data-logout>Chiqish</button></header>
@@ -1100,6 +1179,10 @@ document.addEventListener("click", e => {
     return;
   }
   if (b.hasAttribute("data-copy")) { copyCred(); return; }
+  if (b.hasAttribute("data-tglink")) { linkTelegram(b); return; }
+  if (b.hasAttribute("data-tgoff")) { setDoc(doc(db, "subs", auth.currentUser.uid), { tg: [] }, { merge: true }).then(() => toast("Telegram uzildi")).catch(onErr); return; }
+  if (b.hasAttribute("data-pushon")) { enablePush(b); return; }
+  if (b.hasAttribute("data-pushoff")) { disablePush(); return; }
   if (b.dataset.msel) { S.msel = S.msel === b.dataset.msel ? null : b.dataset.msel; S.mdel = null; S.medit = null; render(); return; }
   if (b.dataset.medit) { const m = chatCtx().msgs.find(x => x.id === b.dataset.medit); if (m) { S.medit = { id: m.id, text: m.text }; S.msel = null; render(); } return; }
   if (b.dataset.msave) { saveEdit(b.dataset.msave); return; }
