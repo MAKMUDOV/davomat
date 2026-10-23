@@ -46,7 +46,7 @@ function fmtTime(ts) {
 const configured = !!(firebaseConfig && firebaseConfig.apiKey && !/BU_YERGA/.test(firebaseConfig.apiKey + firebaseConfig.projectId) && ADMIN_UID && !/BU_YERGA/.test(ADMIN_UID));
 let fbApp = null, auth = null, db = null;
 if (configured) { fbApp = initializeApp(firebaseConfig); auth = getAuth(fbApp); db = getFirestore(fbApp); }
-document.title = SITE_NAME || "Davomat daftari";
+document.title = (SITE_NAME || "Davomat daftari") + " · Asia Academy";
 document.head.insertAdjacentHTML("beforeend", `<style>
 .mrow{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:2px}
 .mlab{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);min-width:54px}
@@ -105,6 +105,13 @@ ol.roll li{grid-template-columns:28px minmax(0,1fr)!important}
 .repalert{display:grid;gap:6px}
 .repalert pre{white-space:pre-wrap;font:500 13.5px/1.5 var(--f-body);margin:0}
 .paynote b.t{display:block;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.hbrand{display:flex;align-items:center;gap:12px;min-width:0}
+.bmark{flex:none;width:46px;height:46px;border-radius:12px;background:var(--brand);display:grid;place-items:center;box-shadow:0 2px 8px rgba(178,55,73,.25)}
+.bmark img{height:28px;width:auto;display:block}
+.hbrand h1 small b{color:var(--accent);font-weight:700;letter-spacing:.1em}
+.blogo{display:block;width:min(220px,66%);height:auto;margin:6px auto 14px}
+.login h1{text-align:center;font-size:24px;margin-top:2px}
+.login h1 small{margin:0 0 2px}
 .note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 12px;border-radius:0 8px 8px 0;font-size:13px}
 </style>`);
 
@@ -197,7 +204,7 @@ function vLogin() {
   const t = S.loginMode === "teacher";
   const rem = remembered(), saved = rem ? (ls.get("dv_id_" + S.loginMode) || "") : "";
   return `<section class="sheet login">
-    <div><h1><small>Til o'rganish guruhlari</small>${esc(SITE_NAME)}</h1></div>
+    <div><img class="blogo" src="logo.png" alt="Asia Academy — Aim for Excellence" width="520" height="334"><h1>${esc(SITE_NAME)}</h1></div>
     <div class="seg" role="group" aria-label="Kim kiryapti">
       <button class="${t ? "" : "k"}" style="flex:1;font-family:var(--f-body);font-weight:600" data-mode="parent" aria-pressed="${!t}">Ota-ona</button>
       <button class="${t ? "k" : ""}" style="flex:1;font-family:var(--f-body);font-weight:600" data-mode="teacher" aria-pressed="${t}">O'qituvchi</button>
@@ -421,7 +428,7 @@ function archiveBatch(b, st) {
 }
 function credText(st, c) {
   const url = location.origin + location.pathname;
-  return `Assalomu alaykum! ${st.name}ning davomat kabinetiga kirish:\nSayt: ${url}\n"Ota-ona" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
+  return `Assalomu alaykum! Asia Academy — ${st.name}ning davomat kabinetiga kirish:\nSayt: ${url}\n"Ota-ona" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
 
 /* admin: o'qituvchilar */
@@ -485,7 +492,7 @@ async function deleteTeacher(t) {
 }
 function tcredText(c) {
   const url = location.origin + location.pathname;
-  return `Assalomu alaykum, ${c.name}! Davomat daftariga ${c.subject ? c.subject + " o'qituvchisi" : "o'qituvchi"} sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
+  return `Assalomu alaykum, ${c.name}! Asia Academy davomat daftariga ${c.subject ? c.subject + " o'qituvchisi" : "o'qituvchi"} sifatida kirish:\nSayt: ${url}\n"O'qituvchi" bo'limini tanlang.\nKod: ${c.code}\nParol: ${c.pw}`;
 }
 
 /* to'lov eslatmasi: har oyning belgilangan kunlarida ota-onalarga avtomatik xabar */
@@ -867,7 +874,7 @@ function vTeacher() {
   const body = { bugun: vBugun, jurnal: vJurnal, xabar: vXabar, guruh: vGuruh, oqit: vTeachers, hisob: vReport, qoida: vQoida, sozlama: settingsTab }[S.tab] || vBugun;
   const mySubj = subjOf(S.uid);
   const who = (S.isAdmin ? "Bosh o'qituvchi (admin)" : "O'qituvchi · " + esc(S.meT ? S.meT.name : "")) + (mySubj ? " · " + esc(mySubj) : "");
-  return `<header class="top"><h1><small>${who}</small>${esc(SITE_NAME)}</h1><button class="btn small" data-logout>Chiqish</button></header>
+  return `<header class="top"><div class="hbrand"><span class="bmark"><img src="mark-w.png" alt="Asia Academy" width="29" height="32"></span><h1><small><b>Asia Academy</b> · ${who}</small>${esc(SITE_NAME)}</h1></div><button class="btn small" data-logout>Chiqish</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}${k === "xabar" && u ? `<span class="badge">${u}</span>` : ""}</button>`).join("")}</nav>
     <main style="display:grid;gap:14px">${S.isAdmin && S.repAlert === iso(new Date()) && S.tab !== "hisob" ? repAlertHtml() : ""}${body()}</main>`;
 }
@@ -1020,7 +1027,7 @@ function vParent() {
     body = `${pk ? `<section class="note paynote" role="status"><b class="t">To'lov eslatmasi</b>${esc(S.rules.payText)}</section>` : ""}<section class="sheet">${cardBody(S.me.name, S.groupName, recs, S.pmonth, "")}</section>
       <section class="sheet"><details><summary style="cursor:pointer;font-weight:600">Davomat qoidalari</summary><div style="display:grid;gap:12px;margin-top:12px">${rulesList(S.rules)}</div></details></section>`;
   }
-  return `<header class="top"><h1><small>${esc([S.me.subject, S.groupName].filter(Boolean).join(" · ") || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1><button class="btn small" data-logout>Chiqish</button></header>
+  return `<header class="top"><div class="hbrand"><span class="bmark"><img src="mark-w.png" alt="Asia Academy" width="29" height="32"></span><h1><small><b>Asia Academy</b> · ${esc([S.me.subject, S.groupName].filter(Boolean).join(" · ") || "Ota-ona kabineti")}</small>${esc(S.me.name)}</h1></div><button class="btn small" data-logout>Chiqish</button></header>
     <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-ptab="${k}" aria-selected="${S.ptab === k}">${l}${k === "xabar" && unread ? `<span class="badge">1</span>` : ""}</button>`).join("")}</nav>
     <main style="display:grid;gap:14px">${body}</main>`;
 }
